@@ -5,6 +5,7 @@
 ## Notes-deDE: Kategorienreihenfolge und Mausrad-Scrollen für Blizzards Zielverfolgung.
 ## Author: Timur
 ## Version: 0.1.5
+## X-Curse-Project-ID: 1653870
 ## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB
 ## Dependencies: Blizzard_ObjectiveTracker
