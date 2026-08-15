@@ -33,6 +33,7 @@ if ($ExpectedVersion -and $version -ne $ExpectedVersion.TrimStart('v')) {
 $manifestEntries = $tocLines | Where-Object {
     $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
 }
+$runtimeAssets = @("Media\BetterQuestListIcon.tga")
 
 $missingFiles = @()
 $directorySeparator = [System.IO.Path]::DirectorySeparatorChar
@@ -43,6 +44,14 @@ foreach ($entry in $manifestEntries) {
     if (-not $fullPath.StartsWith($addonPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "TOC entry escapes the addon directory: $entry"
     }
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        $missingFiles += $entry
+    }
+}
+
+foreach ($entry in $runtimeAssets) {
+    $relativePath = $entry.Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)
+    $fullPath = [System.IO.Path]::GetFullPath((Join-Path $addonRoot $relativePath))
     if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
         $missingFiles += $entry
     }

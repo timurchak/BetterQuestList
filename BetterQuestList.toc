@@ -2,12 +2,14 @@
 ## Title: BetterQuestList
 ## Notes: Lightweight ordering and mouse-wheel scrolling for Blizzard's Objective Tracker.
 ## Notes-ruRU: Порядок категорий и прокрутка колесом для стандартного трекера Blizzard.
+## Notes-deDE: Kategorienreihenfolge und Mausrad-Scrollen für Blizzards Zielverfolgung.
 ## Author: Timur
-## Version: 0.1.3
+## Version: 0.1.5
+## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB
 ## Dependencies: Blizzard_ObjectiveTracker
 
+Locales.lua
 Core.lua
 Scroll.lua
 Options.lua
-

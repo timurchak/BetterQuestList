@@ -4,6 +4,7 @@ _G.BetterQuestList = BQL
 
 BQL.addonName = addonName
 BQL.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "dev"
+BQL.ICON_PATH = "Interface\\AddOns\\BetterQuestList\\Media\\BetterQuestListIcon.tga"
 
 BQL.DEFAULT_ORDER = {
     "ScenarioObjectiveTracker",
@@ -19,70 +20,6 @@ BQL.DEFAULT_ORDER = {
     "WorldQuestObjectiveTracker",
 }
 
-local isRussian = GetLocale() == "ruRU"
-
-BQL.text = isRussian and {
-    title = "BetterQuestList",
-    description = "Настройки BetterQuestList для стандартного трекера Blizzard.",
-    compatibilityWarning = "Безопасный режим: изменение порядка и прокрутка временно отключены. В WoW 12.1 изменение внутренних данных трекера помечает защищённое обновление Blizzard как tainted и вызывает ошибки Secret Values.",
-    order = "Порядок категорий",
-    scrolling = "Прокрутка колесом мыши",
-    scrollingDescription = "Показывает все отслеживаемые цели и прокручивает их внутри стандартного трекера.",
-    reset = "Сбросить порядок",
-    moveUp = "Переместить выше",
-    moveDown = "Переместить ниже",
-    optionsUnavailable = "Не удалось открыть настройки.",
-    resetDone = "Порядок категорий сброшен.",
-    scrollOn = "Прокрутка включена.",
-    scrollOff = "Прокрутка выключена.",
-    debugUnavailable = "Стандартный трекер ещё не готов.",
-    kalielsConflict = "Для проверки отключите !KalielsTracker: он заменяет стандартный трекер Blizzard.",
-    restrictedMode = "Включён безопасный режим совместимости с WoW 12.1; изменения стандартного трекера отключены.",
-} or {
-    title = "BetterQuestList",
-    description = "BetterQuestList settings for Blizzard's Objective Tracker.",
-    compatibilityWarning = "Safe mode: category ordering and scrolling are temporarily disabled. In WoW 12.1, changing Objective Tracker internals taints Blizzard's protected update and causes Secret Values errors.",
-    order = "Category order",
-    scrolling = "Mouse-wheel scrolling",
-    scrollingDescription = "Renders all tracked objectives and scrolls them inside Blizzard's tracker.",
-    reset = "Reset order",
-    moveUp = "Move up",
-    moveDown = "Move down",
-    optionsUnavailable = "Could not open the settings panel.",
-    resetDone = "Category order reset.",
-    scrollOn = "Scrolling enabled.",
-    scrollOff = "Scrolling disabled.",
-    debugUnavailable = "Blizzard's tracker is not ready yet.",
-    kalielsConflict = "Disable !KalielsTracker while testing; it replaces Blizzard's Objective Tracker.",
-    restrictedMode = "WoW 12.1 compatibility safe mode is enabled; Blizzard tracker modifications are disabled.",
-}
-
-BQL.fallbackLabels = isRussian and {
-    ScenarioObjectiveTracker = "Сценарий",
-    UIWidgetObjectiveTracker = "События",
-    CampaignQuestObjectiveTracker = "Кампания",
-    QuestObjectiveTracker = "Задания",
-    AdventureObjectiveTracker = "Приключения",
-    AchievementObjectiveTracker = "Достижения",
-    MonthlyActivitiesObjectiveTracker = "Журнал путешественника",
-    InitiativeTasksObjectiveTracker = "Начинания",
-    ProfessionsRecipeTracker = "Рецепты профессий",
-    BonusObjectiveTracker = "Бонусные цели",
-    WorldQuestObjectiveTracker = "Локальные задания",
-} or {
-    ScenarioObjectiveTracker = "Scenario",
-    UIWidgetObjectiveTracker = "Events",
-    CampaignQuestObjectiveTracker = "Campaign",
-    QuestObjectiveTracker = "Quests",
-    AdventureObjectiveTracker = "Adventures",
-    AchievementObjectiveTracker = "Achievements",
-    MonthlyActivitiesObjectiveTracker = "Traveler's Log",
-    InitiativeTasksObjectiveTracker = "Endeavors",
-    ProfessionsRecipeTracker = "Profession Recipes",
-    BonusObjectiveTracker = "Bonus Objectives",
-    WorldQuestObjectiveTracker = "World Quests",
-}
-
 local function CopyArray(source)
     local result = {}
     for index, value in ipairs(source) do
@@ -92,7 +29,7 @@ local function CopyArray(source)
 end
 
 function BQL:Print(message)
-    print("|cff33ff99BetterQuestList:|r " .. message)
+    print(("|T%s:14:14:0:0|t |cff33ff99BetterQuestList:|r %s"):format(self.ICON_PATH, message))
 end
 
 function BQL:GetModuleName(module)
@@ -278,4 +215,3 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         end)
     end
 end)
-

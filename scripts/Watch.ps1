@@ -24,6 +24,7 @@ function Get-WatchedPaths {
     $paths += Get-Content -LiteralPath $tocPath | Where-Object {
         $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
     }
+    $paths += @("Media\BetterQuestListIcon.tga")
 
     $result = @{}
     foreach ($path in $paths) {

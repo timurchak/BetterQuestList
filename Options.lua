@@ -31,15 +31,20 @@ end
 
 function BQL:CreateOptions()
     local panel = CreateFrame("Frame")
-    panel.name = self.text.title
+    panel.name = ("|T%s:16:16:0:0|t %s"):format(self.ICON_PATH, self.text.title)
     self.optionsPanel = panel
     self.optionRows = {}
 
+    local icon = panel:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(36, 36)
+    icon:SetPoint("TOPLEFT", 16, -12)
+    icon:SetTexture(self.ICON_PATH)
+
     local title = CreateLabel(panel, "GameFontNormalLarge", self.text.title)
-    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
 
     local description = CreateLabel(panel, "GameFontHighlightSmall", self.text.description)
-    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
     description:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
     description:SetWordWrap(true)
 
@@ -154,4 +159,3 @@ function BQL:RefreshOptions()
     self.scrollCheck:SetChecked(false)
     self.scrollCheck:SetEnabled(false)
 end
-

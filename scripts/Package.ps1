@@ -35,6 +35,7 @@ try {
     $addonEntries += Get-Content -LiteralPath $tocPath | Where-Object {
         $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
     }
+    $addonEntries += @("Media\BetterQuestListIcon.tga")
     foreach ($entry in $addonEntries) {
         $directorySeparator = [System.IO.Path]::DirectorySeparatorChar
         $relativePath = $entry.Trim().Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)

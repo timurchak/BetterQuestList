@@ -1,67 +1,88 @@
 # BetterQuestList
 
-Лёгкая надстройка над стандартным Blizzard Objective Tracker:
+<img src="Media/BetterQuestListIcon.png" alt="BetterQuestList" width="96">
 
-- настраиваемый порядок категорий;
-- прокрутка длинного списка колесом мыши;
-- без собственного рендера квестов.
+BetterQuestList is a lightweight customization layer for Blizzard's Objective Tracker. The project is intended to provide:
 
-## Структура
+- configurable category ordering;
+- mouse-wheel scrolling for long tracked-objective lists;
+- the native Blizzard quest rendering style.
 
-- `BetterQuestList.toc`, `Core.lua`, `Scroll.lua`, `Options.lua` — исходники аддона в корне репозитория;
-- `scripts/Validate.ps1` — проверка TOC и структуры;
-- `scripts/Deploy.ps1` — чистый деплой в WoW;
-- `scripts/Watch.ps1` — деплой при каждом сохранении исходников;
-- `scripts/Package.ps1` — сборка готового ZIP;
-- `.pkgmeta` — правила упаковки WoW Packager;
-- `.github/workflows/ci.yml` — проверка и тестовая сборка;
-- `.github/workflows/release.yml` — GitHub Release и публикация по тегу.
+> [!IMPORTANT]
+> WoW 12.1 compatibility safe mode currently disables native tracker mutations. Changing Blizzard's internal module order or available-height logic taints protected Objective Tracker updates and can trigger Secret Values errors. The settings remain available while a safe rendering approach is developed.
 
-Папка `Interface/AddOns/BetterQuestList` является только результатом деплоя. Не редактируйте файлы в ней вручную.
+## Localization
 
-## Локальная разработка
+The addon currently supports:
 
-Локальный путь WoW хранится в `.deploy.local.ps1`, который исключён из Git:
+- English (`enUS` and `enGB`, also used as the fallback);
+- German (`deDE`);
+- Russian (`ruRU`).
+
+Runtime strings and fallback module labels are defined in `Locales.lua`.
+
+## Project structure
+
+- `BetterQuestList.toc`, `Locales.lua`, `Core.lua`, `Scroll.lua`, and `Options.lua` are the addon runtime sources;
+- `Media/BetterQuestListIcon.tga` is the in-game icon;
+- `Media/BetterQuestListIcon.png` is the repository and project-page logo;
+- `scripts/Validate.ps1` validates the TOC and source structure;
+- `scripts/Deploy.ps1` performs a clean deployment to WoW;
+- `scripts/Watch.ps1` deploys whenever a runtime source changes;
+- `scripts/Package.ps1` creates a ready-to-upload ZIP;
+- `.pkgmeta` configures the BigWigs WoW Packager;
+- `.github/workflows/ci.yml` validates the project and builds a test package;
+- `.github/workflows/release.yml` creates GitHub releases and publishes tagged builds.
+
+The `Interface/AddOns/BetterQuestList` directory is a deployment output only. Do not edit that copy directly.
+
+## Local development
+
+Store the local WoW path in the Git-ignored `.deploy.local.ps1` file:
 
 ```powershell
 $BetterQuestListWowRoot = "F:\G\World of Warcraft\_retail_"
 ```
 
-Проверить и задеплоить:
+Validate and deploy the addon:
 
 ```powershell
 ./scripts/Validate.ps1
 ./scripts/Deploy.ps1
 ```
 
-Следить за изменениями и автоматически деплоить после сохранения:
+Watch runtime files and deploy after every saved change:
 
 ```powershell
 ./scripts/Watch.ps1
 ```
 
-После деплоя выполните `/reload` в WoW.
+Run `/reload` in WoW after deployment.
 
-Собрать ZIP локально:
+## Manual CurseForge upload
+
+Create a local release package:
 
 ```powershell
 ./scripts/Package.ps1
 ```
 
-## GitHub CI и релизы
+Upload the generated `dist/BetterQuestList-<version>.zip` file through the CurseForge project dashboard. The ZIP contains a single top-level `BetterQuestList` directory and can be used for the initial manual project upload.
 
-Каждый push в `main` и pull request проверяет проект и собирает тестовый ZIP. Тег, совпадающий с версией из TOC, запускает `BigWigsMods/packager@v2` и создаёт GitHub Release:
+## GitHub CI and releases
+
+Every push to `main` and every pull request validates the addon and builds a test ZIP. A tag matching the TOC version runs `BigWigsMods/packager@v2` and creates a GitHub release:
 
 ```powershell
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
-Перед тегом обновите `## Version` в `BetterQuestList.toc`.
+Update `## Version` in `BetterQuestList.toc` before creating the tag.
 
-Для публикации на CurseForge дополнительно нужны:
+CurseForge publishing additionally requires:
 
-1. `## X-Curse-Project-ID: ...` в `BetterQuestList.toc`;
-2. секрет репозитория `CF_API_KEY`.
+1. `## X-Curse-Project-ID: ...` in `BetterQuestList.toc`;
+2. a repository secret named `CF_API_KEY`.
 
-Без CurseForge Project ID packager продолжит создавать обычные GitHub Releases.
+Without a CurseForge project ID, the packager can still create standard GitHub releases.

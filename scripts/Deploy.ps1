@@ -53,6 +53,7 @@ $addonEntries = @("BetterQuestList.toc")
 $addonEntries += Get-Content -LiteralPath $tocPath | Where-Object {
     $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
 }
+$addonEntries += @("Media\BetterQuestListIcon.tga")
 
 foreach ($entry in $addonEntries) {
     $directorySeparator = [System.IO.Path]::DirectorySeparatorChar

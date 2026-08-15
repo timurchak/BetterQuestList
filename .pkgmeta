@@ -12,5 +12,6 @@ ignore:
   - .pkgmeta
   - AGENTS.md
   - README.md
+  - Media/BetterQuestListIcon.png
   - scripts
   - dist
