@@ -23,7 +23,8 @@ local isRussian = GetLocale() == "ruRU"
 
 BQL.text = isRussian and {
     title = "BetterQuestList",
-    description = "Использует стандартный трекер Blizzard и добавляет только порядок категорий и прокрутку колесом мыши.",
+    description = "Настройки BetterQuestList для стандартного трекера Blizzard.",
+    compatibilityWarning = "Безопасный режим: изменение порядка и прокрутка временно отключены. В WoW 12.1 изменение внутренних данных трекера помечает защищённое обновление Blizzard как tainted и вызывает ошибки Secret Values.",
     order = "Порядок категорий",
     scrolling = "Прокрутка колесом мыши",
     scrollingDescription = "Показывает все отслеживаемые цели и прокручивает их внутри стандартного трекера.",
@@ -36,9 +37,11 @@ BQL.text = isRussian and {
     scrollOff = "Прокрутка выключена.",
     debugUnavailable = "Стандартный трекер ещё не готов.",
     kalielsConflict = "Для проверки отключите !KalielsTracker: он заменяет стандартный трекер Blizzard.",
+    restrictedMode = "Включён безопасный режим совместимости с WoW 12.1; изменения стандартного трекера отключены.",
 } or {
     title = "BetterQuestList",
-    description = "Keeps Blizzard's Objective Tracker renderer and adds only category ordering and mouse-wheel scrolling.",
+    description = "BetterQuestList settings for Blizzard's Objective Tracker.",
+    compatibilityWarning = "Safe mode: category ordering and scrolling are temporarily disabled. In WoW 12.1, changing Objective Tracker internals taints Blizzard's protected update and causes Secret Values errors.",
     order = "Category order",
     scrolling = "Mouse-wheel scrolling",
     scrollingDescription = "Renders all tracked objectives and scrolls them inside Blizzard's tracker.",
@@ -51,6 +54,7 @@ BQL.text = isRussian and {
     scrollOff = "Scrolling disabled.",
     debugUnavailable = "Blizzard's tracker is not ready yet.",
     kalielsConflict = "Disable !KalielsTracker while testing; it replaces Blizzard's Objective Tracker.",
+    restrictedMode = "WoW 12.1 compatibility safe mode is enabled; Blizzard tracker modifications are disabled.",
 }
 
 BQL.fallbackLabels = isRussian and {
@@ -174,28 +178,12 @@ function BQL:ReconcileOrder()
 end
 
 function BQL:ApplyModuleOrder()
-    local tracker = _G.ObjectiveTrackerFrame
-    if not tracker or not tracker.modules then
-        return
-    end
-
-    local order = self:ReconcileOrder()
-    local indexByName = {}
-    for index, name in ipairs(order) do
-        indexByName[name] = index
-    end
-
-    local nextOrder = #order + 1
-    for _, module in ipairs(tracker.modules) do
-        local name = self:GetModuleName(module)
-        module.uiOrder = indexByName[name] or nextOrder
-        if not indexByName[name] then
-            nextOrder = nextOrder + 1
-        end
-    end
-
-    tracker.needsSorting = true
-    tracker:MarkDirty()
+    -- WoW 12.1 executes parts of the Objective Tracker update in a protected
+    -- context. Writing uiOrder/needsSorting here taints the Blizzard-owned path
+    -- that later reads secret aura data. Keep the preference, but never mutate
+    -- the native tracker from addon code.
+    self:ReconcileOrder()
+    return false
 end
 
 function BQL:MoveModule(index, delta)
@@ -230,29 +218,7 @@ function BQL:OpenOptions()
 end
 
 function BQL:PrintDebugInfo()
-    local tracker = _G.ObjectiveTrackerFrame
-    if not tracker or not tracker.modules then
-        self:Print(self.text.debugUnavailable)
-        return
-    end
-
-    local scrollState = self.scrollState
-    local scrollRange = scrollState and scrollState.frame:GetVerticalScrollRange() or 0
-    self:Print(("version=%s, scrolling=%s, range=%.1f"):format(
-        self.version,
-        tostring(scrollState and scrollState.enabled or false),
-        scrollRange
-    ))
-    for index, module in ipairs(tracker.modules) do
-        local parent = module:GetParent()
-        local parentName = parent and parent:GetName() or "<anonymous>"
-        self:Print(("%d. %s (uiOrder=%s, parent=%s)"):format(
-            index,
-            self:GetModuleName(module) or "<anonymous>",
-            tostring(module.uiOrder),
-            parentName
-        ))
-    end
+    self:Print(("version=%s, safeMode=true, scrolling=false"):format(self.version))
 end
 
 local function HandleSlashCommand(input)
@@ -261,9 +227,7 @@ local function HandleSlashCommand(input)
         BQL:ResetOrder()
         BQL:Print(BQL.text.resetDone)
     elseif command == "scroll" then
-        BQL.db.scrollEnabled = not BQL.db.scrollEnabled
-        BQL:SetScrollingEnabled(BQL.db.scrollEnabled)
-        BQL:Print(BQL.db.scrollEnabled and BQL.text.scrollOn or BQL.text.scrollOff)
+        BQL:SetScrollingEnabled(true)
     elseif command == "debug" then
         BQL:PrintDebugInfo()
     else
@@ -278,9 +242,7 @@ function BQL:Initialize()
     if type(self.db.moduleOrder) ~= "table" then
         self.db.moduleOrder = CopyArray(self.DEFAULT_ORDER)
     end
-    if self.db.scrollEnabled == nil then
-        self.db.scrollEnabled = true
-    end
+    self.db.scrollEnabled = false
     if type(self.db.scrollStep) ~= "number" then
         self.db.scrollStep = 45
     end
@@ -291,6 +253,7 @@ function BQL:Initialize()
 
     self:CreateOptions()
     self:InitializeScrolling()
+    self:Print(self.text.restrictedMode)
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -310,10 +273,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
                 BQL.kalielsWarningShown = true
                 BQL:Print(BQL.text.kalielsConflict)
             end
-            BQL:ApplyModuleOrder()
-            BQL:SetScrollingEnabled(BQL.db.scrollEnabled)
+            -- Do not touch Blizzard-owned tracker state here. See
+            -- ApplyModuleOrder for the WoW 12.1 Secret Values restriction.
         end)
     end
 end)
-
 

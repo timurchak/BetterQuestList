@@ -43,8 +43,13 @@ function BQL:CreateOptions()
     description:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
     description:SetWordWrap(true)
 
+    local compatibilityWarning = CreateLabel(panel, "GameFontRedSmall", self.text.compatibilityWarning)
+    compatibilityWarning:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -12)
+    compatibilityWarning:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    compatibilityWarning:SetWordWrap(true)
+
     local orderTitle = CreateLabel(panel, "GameFontNormal", self.text.order)
-    orderTitle:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -18)
+    orderTitle:SetPoint("TOPLEFT", compatibilityWarning, "BOTTOMLEFT", 0, -18)
     self.orderTitle = orderTitle
 
     for index = 1, MAX_ROWS do
@@ -129,8 +134,8 @@ function BQL:RefreshOptions()
             row.index = index
             row.number:SetText(index .. ".")
             row.label:SetText(self:GetModuleLabel(name))
-            row.up:SetEnabled(index > 1)
-            row.down:SetEnabled(index < #order)
+            row.up:SetEnabled(false)
+            row.down:SetEnabled(false)
             row:Show()
             lastVisibleRow = row
         else
@@ -145,7 +150,8 @@ function BQL:RefreshOptions()
         self.resetButton:SetPoint("TOPLEFT", self.orderTitle, "BOTTOMLEFT", 0, -10)
     end
 
-    self.scrollCheck:SetChecked(self.db.scrollEnabled)
+    self.resetButton:SetEnabled(false)
+    self.scrollCheck:SetChecked(false)
+    self.scrollCheck:SetEnabled(false)
 end
-
 
