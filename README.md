@@ -2,14 +2,21 @@
 
 <img src="Media/BetterQuestListIcon.png" alt="BetterQuestList" width="96">
 
-BetterQuestList is a lightweight customization layer for Blizzard's Objective Tracker. The project is intended to provide:
+BetterQuestList is a lightweight custom quest tracker. The experimental `dev` renderer provides:
 
 - configurable category ordering;
+- tracked achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and native event widgets;
 - mouse-wheel scrolling for long tracked-objective lists;
-- the native Blizzard quest rendering style.
+- selectable tracker fonts and background presets, including a fully transparent background;
+- optional Blizzard-style textured category headers;
+- an Edit Mode companion panel for live appearance, category-spacing, and quest-spacing adjustments;
+- Blizzard Objective Tracker fonts and native quest POI buttons for campaign, legendary, important, recurring, world, and other quest types;
+- Blizzard-style right-click quest menus plus locale-aware, copyable Wowhead URLs;
+- a compact presentation inspired by Blizzard's quest tracker;
+- in-memory snapshots that preserve the last readable quest progress when WoW protects live data.
 
 > [!IMPORTANT]
-> WoW 12.1 compatibility mode never replaces Blizzard functions or writes to protected Objective Tracker ordering fields. Scrolling temporarily expands a pending Blizzard layout calculation and restores the native Edit Mode height immediately afterward; category ordering is applied as a visual post-layout step.
+> The custom renderer does not call Blizzard Objective Tracker layout methods or mutate its module order. The stock tracker remains active but visually hidden, so Blizzard can continue processing protected Scenario and aura data on its own secure path.
 
 ## Localization
 
@@ -23,7 +30,7 @@ Runtime strings and fallback module labels are defined in `Locales.lua`.
 
 ## Project structure
 
-- `BetterQuestList.toc`, `Locales.lua`, `Core.lua`, `Scroll.lua`, and `Options.lua` are the addon runtime sources;
+- `BetterQuestList.toc`, `Locales.lua`, `CustomData.lua`, `Core.lua`, `CustomTracker.lua`, and `Options.lua` are the addon runtime sources;
 - `Media/BetterQuestListIcon.tga` is the in-game icon;
 - `Media/BetterQuestListIcon.png` is the repository and project-page logo;
 - `scripts/Validate.ps1` validates the TOC and source structure;
@@ -59,6 +66,10 @@ Watch runtime files and deploy after every saved change:
 
 Run `/reload` in WoW after deployment.
 
+## Diagnostics
+
+Run `/bql debug` to open a copyable diagnostic report containing tracker, scroll area, scenario widget, and Delve header geometry. Press `Ctrl+A`, then `Ctrl+C` in the report window and include the copied text with a bug report.
+
 ## Manual CurseForge upload
 
 Create a local release package:
@@ -74,8 +85,8 @@ Upload the generated `dist/BetterQuestList-<version>.zip` file through the Curse
 Every push to `main` and every pull request validates the addon and builds a test ZIP. A tag matching the TOC version runs `BigWigsMods/packager@v2` and creates a GitHub release:
 
 ```powershell
-git tag v0.1.6
-git push origin v0.1.6
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Update `## Version` in `BetterQuestList.toc` before creating the tag.

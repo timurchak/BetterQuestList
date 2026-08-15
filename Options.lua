@@ -29,6 +29,40 @@ local function CreateMoveButton(parent, direction, tooltipText)
     return button
 end
 
+local function CreateChoiceDropdown(parent, choices, getValue, setValue)
+    local dropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(dropdown, 190)
+
+    function dropdown:Refresh()
+        local selectedValue = getValue()
+        for _, choice in ipairs(choices) do
+            if choice.value == selectedValue then
+                UIDropDownMenu_SetSelectedValue(self, selectedValue)
+                UIDropDownMenu_SetText(self, choice.label)
+                return
+            end
+        end
+    end
+
+    UIDropDownMenu_Initialize(dropdown, function(_, level)
+        local selectedValue = getValue()
+        for _, choice in ipairs(choices) do
+            local value = choice.value
+            local label = choice.label
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = label
+            info.value = value
+            info.checked = selectedValue == value
+            info.func = function()
+                setValue(value)
+                dropdown:Refresh()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+    return dropdown
+end
+
 function BQL:CreateOptions()
     local panel = CreateFrame("Frame")
     panel.name = ("|T%s:16:16:0:0|t %s"):format(self.ICON_PATH, self.text.title)
@@ -115,6 +149,197 @@ function BQL:CreateOptions()
     scrollDescription:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
     scrollDescription:SetWordWrap(true)
 
+    local appearanceTitle = CreateLabel(panel, "GameFontNormal", self.text.appearance)
+    appearanceTitle:SetPoint("TOPLEFT", scrollDescription, "BOTTOMLEFT", -30, -18)
+
+    local fontLabel = CreateLabel(panel, "GameFontHighlight", self.text.font)
+    fontLabel:SetPoint("TOPLEFT", appearanceTitle, "BOTTOMLEFT", 0, -18)
+    fontLabel:SetWidth(190)
+
+    local fontChoices = {
+        { value = "default", label = self.text.fontDefault },
+        { value = "chat", label = self.text.fontChat },
+        { value = "quest", label = self.text.fontQuest },
+        { value = "system", label = self.text.fontSystem },
+    }
+    local fontDropdown = CreateChoiceDropdown(panel, fontChoices, function()
+        return self.db.font
+    end, function(value)
+        self.db.font = value
+        self:ApplyCustomAppearance()
+    end)
+    fontDropdown:SetPoint("LEFT", fontLabel, "RIGHT", 6, -2)
+    self.fontDropdown = fontDropdown
+
+    local backgroundLabel = CreateLabel(panel, "GameFontHighlight", self.text.background)
+    backgroundLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -24)
+    backgroundLabel:SetWidth(190)
+
+    local backgroundChoices = {
+        { value = "none", label = self.text.backgroundNone },
+        { value = "subtle", label = self.text.backgroundSubtle },
+        { value = "dark", label = self.text.backgroundDark },
+    }
+    local backgroundDropdown = CreateChoiceDropdown(panel, backgroundChoices, function()
+        return self.db.background
+    end, function(value)
+        self.db.background = value
+        self:ApplyCustomAppearance()
+    end)
+    backgroundDropdown:SetPoint("LEFT", backgroundLabel, "RIGHT", 6, -2)
+    self.backgroundDropdown = backgroundDropdown
+
+    local categoryStyleLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryStyle)
+    categoryStyleLabel:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -24)
+    categoryStyleLabel:SetWidth(190)
+
+    local categoryStyleChoices = {
+        { value = "blizzard", label = self.text.categoryStyleBlizzard },
+        { value = "plain", label = self.text.categoryStylePlain },
+    }
+    local categoryStyleDropdown = CreateChoiceDropdown(panel, categoryStyleChoices, function()
+        return self.db.categoryStyle
+    end, function(value)
+        self.db.categoryStyle = value
+        self:ApplyCustomAppearance()
+    end)
+    categoryStyleDropdown:SetPoint("LEFT", categoryStyleLabel, "RIGHT", 6, -2)
+    self.categoryStyleDropdown = categoryStyleDropdown
+
+    local categoryOffsetLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryOffset)
+    categoryOffsetLabel:SetPoint("TOPLEFT", categoryStyleLabel, "BOTTOMLEFT", 0, -26)
+    categoryOffsetLabel:SetWidth(190)
+
+    local categoryOffsetSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    categoryOffsetSlider:SetPoint("LEFT", categoryOffsetLabel, "RIGHT", 18, 0)
+    categoryOffsetSlider:SetWidth(170)
+    categoryOffsetSlider:SetMinMaxValues(-20, 20)
+    categoryOffsetSlider:SetValueStep(1)
+    categoryOffsetSlider:SetObeyStepOnDrag(true)
+    self.categoryOffsetSlider = categoryOffsetSlider
+
+    local categoryOffsetValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    categoryOffsetValue:SetPoint("LEFT", categoryOffsetSlider, "RIGHT", 12, 0)
+    categoryOffsetValue:SetWidth(55)
+    self.categoryOffsetValue = categoryOffsetValue
+
+    categoryOffsetSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(-20, math.min(math.floor(value + 0.5), 20))
+        categoryOffsetValue:SetFormattedText("%+d px", roundedValue)
+        if self.db.categoryOffset ~= roundedValue then
+            self.db.categoryOffset = roundedValue
+            self:ApplyCustomAppearance()
+        end
+    end)
+
+    local categoryTextOffsetLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryTextOffset)
+    categoryTextOffsetLabel:SetPoint("TOPLEFT", categoryOffsetLabel, "BOTTOMLEFT", 0, -28)
+    categoryTextOffsetLabel:SetWidth(190)
+
+    local categoryTextOffsetSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    categoryTextOffsetSlider:SetPoint("LEFT", categoryTextOffsetLabel, "RIGHT", 18, 0)
+    categoryTextOffsetSlider:SetWidth(170)
+    categoryTextOffsetSlider:SetMinMaxValues(-100, 100)
+    categoryTextOffsetSlider:SetValueStep(1)
+    categoryTextOffsetSlider:SetObeyStepOnDrag(true)
+    self.categoryTextOffsetSlider = categoryTextOffsetSlider
+
+    local categoryTextOffsetValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    categoryTextOffsetValue:SetPoint("LEFT", categoryTextOffsetSlider, "RIGHT", 12, 0)
+    categoryTextOffsetValue:SetWidth(55)
+    self.categoryTextOffsetValue = categoryTextOffsetValue
+
+    categoryTextOffsetSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(-100, math.min(math.floor(value + 0.5), 100))
+        categoryTextOffsetValue:SetFormattedText("%+d px", roundedValue)
+        if self.db.categoryTextOffset ~= roundedValue then
+            self.db.categoryTextOffset = roundedValue
+            self:ApplyCustomAppearance()
+        end
+    end)
+
+    local categorySpacingLabel = CreateLabel(panel, "GameFontHighlight", self.text.categorySpacing)
+    categorySpacingLabel:SetPoint("TOPLEFT", categoryTextOffsetLabel, "BOTTOMLEFT", 0, -28)
+    categorySpacingLabel:SetWidth(190)
+
+    local categorySpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    categorySpacingSlider:SetPoint("LEFT", categorySpacingLabel, "RIGHT", 18, 0)
+    categorySpacingSlider:SetWidth(170)
+    categorySpacingSlider:SetMinMaxValues(0, 30)
+    categorySpacingSlider:SetValueStep(1)
+    categorySpacingSlider:SetObeyStepOnDrag(true)
+    self.categorySpacingSlider = categorySpacingSlider
+
+    local categorySpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    categorySpacingValue:SetPoint("LEFT", categorySpacingSlider, "RIGHT", 12, 0)
+    categorySpacingValue:SetWidth(55)
+    self.categorySpacingValue = categorySpacingValue
+
+    categorySpacingSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(0, math.min(math.floor(value + 0.5), 30))
+        categorySpacingValue:SetFormattedText("%+d px", roundedValue)
+        if self.db.categorySpacing ~= roundedValue then
+            self.db.categorySpacing = roundedValue
+            self:ApplyCustomAppearance()
+        end
+    end)
+
+    local questSpacingLabel = CreateLabel(panel, "GameFontHighlight", self.text.questSpacing)
+    questSpacingLabel:SetPoint("TOPLEFT", categorySpacingLabel, "BOTTOMLEFT", 0, -28)
+    questSpacingLabel:SetWidth(190)
+
+    local questSpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    questSpacingSlider:SetPoint("LEFT", questSpacingLabel, "RIGHT", 18, 0)
+    questSpacingSlider:SetWidth(170)
+    questSpacingSlider:SetMinMaxValues(0, 30)
+    questSpacingSlider:SetValueStep(1)
+    questSpacingSlider:SetObeyStepOnDrag(true)
+    self.questSpacingSlider = questSpacingSlider
+
+    local questSpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    questSpacingValue:SetPoint("LEFT", questSpacingSlider, "RIGHT", 12, 0)
+    questSpacingValue:SetWidth(55)
+    self.questSpacingValue = questSpacingValue
+
+    questSpacingSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(0, math.min(math.floor(value + 0.5), 30))
+        questSpacingValue:SetFormattedText("%+d px", roundedValue)
+        if self.db.questSpacing ~= roundedValue then
+            self.db.questSpacing = roundedValue
+            self:ApplyCustomAppearance()
+        end
+    end)
+
+    local questObjectiveSpacingLabel = CreateLabel(
+        panel,
+        "GameFontHighlight",
+        self.text.questObjectiveSpacing
+    )
+    questObjectiveSpacingLabel:SetPoint("TOPLEFT", questSpacingLabel, "BOTTOMLEFT", 0, -28)
+    questObjectiveSpacingLabel:SetWidth(190)
+
+    local questObjectiveSpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    questObjectiveSpacingSlider:SetPoint("LEFT", questObjectiveSpacingLabel, "RIGHT", 18, 0)
+    questObjectiveSpacingSlider:SetWidth(170)
+    questObjectiveSpacingSlider:SetMinMaxValues(0, 20)
+    questObjectiveSpacingSlider:SetValueStep(1)
+    questObjectiveSpacingSlider:SetObeyStepOnDrag(true)
+    self.questObjectiveSpacingSlider = questObjectiveSpacingSlider
+
+    local questObjectiveSpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    questObjectiveSpacingValue:SetPoint("LEFT", questObjectiveSpacingSlider, "RIGHT", 12, 0)
+    questObjectiveSpacingValue:SetWidth(55)
+    self.questObjectiveSpacingValue = questObjectiveSpacingValue
+
+    questObjectiveSpacingSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(0, math.min(math.floor(value + 0.5), 20))
+        questObjectiveSpacingValue:SetFormattedText("%+d px", roundedValue)
+        if self.db.questObjectiveSpacing ~= roundedValue then
+            self.db.questObjectiveSpacing = roundedValue
+            self:ApplyCustomAppearance()
+        end
+    end)
+
     panel:SetScript("OnShow", function()
         self:RefreshOptions()
     end)
@@ -158,4 +383,17 @@ function BQL:RefreshOptions()
     self.resetButton:SetEnabled(true)
     self.scrollCheck:SetChecked(self.db.scrollEnabled)
     self.scrollCheck:SetEnabled(true)
+    self.fontDropdown:Refresh()
+    self.backgroundDropdown:Refresh()
+    self.categoryStyleDropdown:Refresh()
+    self.categoryOffsetSlider:SetValue(self.db.categoryOffset)
+    self.categoryOffsetValue:SetFormattedText("%+d px", self.db.categoryOffset)
+    self.categoryTextOffsetSlider:SetValue(self.db.categoryTextOffset)
+    self.categoryTextOffsetValue:SetFormattedText("%+d px", self.db.categoryTextOffset)
+    self.categorySpacingSlider:SetValue(self.db.categorySpacing)
+    self.categorySpacingValue:SetFormattedText("%+d px", self.db.categorySpacing)
+    self.questSpacingSlider:SetValue(self.db.questSpacing)
+    self.questSpacingValue:SetFormattedText("%+d px", self.db.questSpacing)
+    self.questObjectiveSpacingSlider:SetValue(self.db.questObjectiveSpacing)
+    self.questObjectiveSpacingValue:SetFormattedText("%+d px", self.db.questObjectiveSpacing)
 end
