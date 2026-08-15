@@ -1,0 +1,6 @@
+dist/
+*.zip
+.deploy.local.ps1
+.idea/
+.vscode/
+*.log

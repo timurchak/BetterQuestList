@@ -1,0 +1,66 @@
+[CmdletBinding()]
+param(
+    [string]$ExpectedVersion
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$addonRoot = Join-Path $projectRoot "addon\BetterQuestList"
+$tocPath = Join-Path $addonRoot "BetterQuestList.toc"
+
+if (-not (Test-Path -LiteralPath $tocPath -PathType Leaf)) {
+    throw "Missing TOC file: $tocPath"
+}
+
+$tocLines = Get-Content -LiteralPath $tocPath
+$versionLine = $tocLines | Where-Object { $_ -match '^## Version:\s*(.+?)\s*$' } | Select-Object -First 1
+$interfaceLine = $tocLines | Where-Object { $_ -match '^## Interface:\s*(\d+)\s*$' } | Select-Object -First 1
+
+if (-not $versionLine) {
+    throw "BetterQuestList.toc does not contain a Version field."
+}
+if (-not $interfaceLine) {
+    throw "BetterQuestList.toc does not contain a numeric Interface field."
+}
+
+$version = ([regex]::Match($versionLine, '^## Version:\s*(.+?)\s*$')).Groups[1].Value
+if ($ExpectedVersion -and $version -ne $ExpectedVersion.TrimStart('v')) {
+    throw "TOC version '$version' does not match expected version '$ExpectedVersion'."
+}
+
+$manifestEntries = $tocLines | Where-Object {
+    $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
+}
+
+$missingFiles = @()
+$addonPrefix = $addonRoot.TrimEnd('\') + '\'
+foreach ($entry in $manifestEntries) {
+    $relativePath = $entry.Trim() -replace '/', '\'
+    $fullPath = [System.IO.Path]::GetFullPath((Join-Path $addonRoot $relativePath))
+    if (-not $fullPath.StartsWith($addonPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "TOC entry escapes the addon directory: $entry"
+    }
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        $missingFiles += $entry
+    }
+}
+
+if ($missingFiles.Count -gt 0) {
+    throw "TOC references missing files: $($missingFiles -join ', ')"
+}
+
+$luaFiles = @(Get-ChildItem -LiteralPath $addonRoot -Filter "*.lua" -File -Recurse)
+if ($luaFiles.Count -eq 0) {
+    throw "No Lua source files found under $addonRoot"
+}
+
+foreach ($luaFile in $luaFiles) {
+    $bytes = [System.IO.File]::ReadAllBytes($luaFile.FullName)
+    if ($bytes -contains 0) {
+        throw "Lua source contains a NUL byte: $($luaFile.FullName)"
+    }
+}
+
+Write-Host "Validated BetterQuestList $version ($($luaFiles.Count) Lua files, $($manifestEntries.Count) TOC entries)."
