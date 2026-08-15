@@ -4,7 +4,7 @@
 ## Notes-ruRU: Порядок категорий и прокрутка колесом для стандартного трекера Blizzard.
 ## Notes-deDE: Kategorienreihenfolge und Mausrad-Scrollen für Blizzards Zielverfolgung.
 ## Author: Timur
-## Version: 0.1.5
+## Version: 0.1.6
 ## X-Curse-Project-ID: 1653870
 ## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB

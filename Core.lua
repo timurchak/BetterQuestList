@@ -115,12 +115,11 @@ function BQL:ReconcileOrder()
 end
 
 function BQL:ApplyModuleOrder()
-    -- WoW 12.1 executes parts of the Objective Tracker update in a protected
-    -- context. Writing uiOrder/needsSorting here taints the Blizzard-owned path
-    -- that later reads secret aura data. Keep the preference, but never mutate
-    -- the native tracker from addon code.
     self:ReconcileOrder()
-    return false
+    if self.RefreshTrackerLayout then
+        return self:RefreshTrackerLayout()
+    end
+    return true
 end
 
 function BQL:MoveModule(index, delta)
@@ -155,7 +154,17 @@ function BQL:OpenOptions()
 end
 
 function BQL:PrintDebugInfo()
-    self:Print(("version=%s, safeMode=true, scrolling=false"):format(self.version))
+    local state = self.scrollState
+    local auraSecrets = C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() or false
+    self:Print(("version=%s, scrolling=%s, layoutExpanded=%s, pending=%s, viewport=%.1f, content=%.1f, auraSecrets=%s"):format(
+        self.version,
+        tostring(state and state.enabled or false),
+        tostring(state and state.layoutExpanded or false),
+        tostring(state and state.pending or false),
+        state and state.viewportHeight or 0,
+        state and state.contentHeight or 0,
+        tostring(auraSecrets)
+    ))
 end
 
 local function HandleSlashCommand(input)
@@ -164,7 +173,9 @@ local function HandleSlashCommand(input)
         BQL:ResetOrder()
         BQL:Print(BQL.text.resetDone)
     elseif command == "scroll" then
-        BQL:SetScrollingEnabled(true)
+        BQL.db.scrollEnabled = not BQL.db.scrollEnabled
+        BQL:SetScrollingEnabled(BQL.db.scrollEnabled)
+        BQL:Print(BQL.db.scrollEnabled and BQL.text.scrollOn or BQL.text.scrollOff)
     elseif command == "debug" then
         BQL:PrintDebugInfo()
     else
@@ -179,7 +190,12 @@ function BQL:Initialize()
     if type(self.db.moduleOrder) ~= "table" then
         self.db.moduleOrder = CopyArray(self.DEFAULT_ORDER)
     end
-    self.db.scrollEnabled = false
+    if self.db.schemaVersion ~= 2 then
+        self.db.schemaVersion = 2
+        self.db.scrollEnabled = true
+    elseif self.db.scrollEnabled == nil then
+        self.db.scrollEnabled = true
+    end
     if type(self.db.scrollStep) ~= "number" then
         self.db.scrollStep = 45
     end
@@ -210,8 +226,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
                 BQL.kalielsWarningShown = true
                 BQL:Print(BQL.text.kalielsConflict)
             end
-            -- Do not touch Blizzard-owned tracker state here. See
-            -- ApplyModuleOrder for the WoW 12.1 Secret Values restriction.
+            if BQL.RequestScrollingState then
+                BQL:RequestScrollingState()
+            end
         end)
     end
 end)

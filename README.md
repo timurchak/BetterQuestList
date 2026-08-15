@@ -9,7 +9,7 @@ BetterQuestList is a lightweight customization layer for Blizzard's Objective Tr
 - the native Blizzard quest rendering style.
 
 > [!IMPORTANT]
-> WoW 12.1 compatibility safe mode currently disables native tracker mutations. Changing Blizzard's internal module order or available-height logic taints protected Objective Tracker updates and can trigger Secret Values errors. The settings remain available while a safe rendering approach is developed.
+> WoW 12.1 compatibility mode never replaces Blizzard functions or writes to protected Objective Tracker ordering fields. Scrolling temporarily expands a pending Blizzard layout calculation and restores the native Edit Mode height immediately afterward; category ordering is applied as a visual post-layout step.
 
 ## Localization
 
@@ -74,8 +74,8 @@ Upload the generated `dist/BetterQuestList-<version>.zip` file through the Curse
 Every push to `main` and every pull request validates the addon and builds a test ZIP. A tag matching the TOC version runs `BigWigsMods/packager@v2` and creates a GitHub release:
 
 ```powershell
-git tag v0.1.5
-git push origin v0.1.5
+git tag v0.1.6
+git push origin v0.1.6
 ```
 
 Update `## Version` in `BetterQuestList.toc` before creating the tag.
