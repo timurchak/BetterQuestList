@@ -8,12 +8,14 @@
 
 ## Структура
 
-- `addon/BetterQuestList` — единственный источник файлов аддона;
+- `BetterQuestList.toc`, `Core.lua`, `Scroll.lua`, `Options.lua` — исходники аддона в корне репозитория;
 - `scripts/Validate.ps1` — проверка TOC и структуры;
 - `scripts/Deploy.ps1` — чистый деплой в WoW;
 - `scripts/Watch.ps1` — деплой при каждом сохранении исходников;
 - `scripts/Package.ps1` — сборка готового ZIP;
-- `.github/workflows/ci.yml` — CI, artifact и GitHub Release по тегу.
+- `.pkgmeta` — правила упаковки WoW Packager;
+- `.github/workflows/ci.yml` — проверка и тестовая сборка;
+- `.github/workflows/release.yml` — GitHub Release и публикация по тегу.
 
 Папка `Interface/AddOns/BetterQuestList` является только результатом деплоя. Не редактируйте файлы в ней вручную.
 
@@ -48,11 +50,18 @@ $BetterQuestListWowRoot = "F:\G\World of Warcraft\_retail_"
 
 ## GitHub CI и релизы
 
-Каждый push и pull request проверяет проект и собирает ZIP. Тег, совпадающий с версией из TOC, создаёт GitHub Release:
+Каждый push в `main` и pull request проверяет проект и собирает тестовый ZIP. Тег, совпадающий с версией из TOC, запускает `BigWigsMods/packager@v2` и создаёт GitHub Release:
 
 ```powershell
 git tag v0.1.2
 git push origin v0.1.2
 ```
 
-Перед тегом обновите `## Version` в `addon/BetterQuestList/BetterQuestList.toc`.
+Перед тегом обновите `## Version` в `BetterQuestList.toc`.
+
+Для публикации на CurseForge дополнительно нужны:
+
+1. `## X-Curse-Project-ID: ...` в `BetterQuestList.toc`;
+2. секрет репозитория `CF_API_KEY`.
+
+Без CurseForge Project ID packager продолжит создавать обычные GitHub Releases.

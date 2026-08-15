@@ -4,15 +4,13 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  validate-package-release:
+  validate-and-package:
     runs-on: windows-latest
 
     steps:
@@ -21,31 +19,14 @@ jobs:
 
       - name: Validate addon
         shell: pwsh
-        run: |
-          $expectedVersion = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { $null }
-          ./scripts/Validate.ps1 -ExpectedVersion $expectedVersion
+        run: ./scripts/Validate.ps1
 
-      - name: Build release ZIP
+      - name: Build test ZIP
         shell: pwsh
         run: ./scripts/Package.ps1 -OutputDirectory dist
 
-      - name: Upload package artifact
+      - name: Upload test package
         uses: actions/upload-artifact@v7
         with:
           path: dist/*.zip
           archive: false
-
-      - name: Create GitHub release
-        if: github.ref_type == 'tag'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $packages = @(Get-ChildItem -LiteralPath dist -Filter "*.zip" -File)
-          if ($packages.Count -ne 1) {
-            throw "Expected exactly one release ZIP, found $($packages.Count)."
-          }
-          gh release create $env:GITHUB_REF_NAME $packages[0].FullName --generate-notes --verify-tag
-
-    permissions:
-      contents: write

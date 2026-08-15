@@ -148,3 +148,4 @@ function BQL:RefreshOptions()
     self.scrollCheck:SetChecked(self.db.scrollEnabled)
 end
 
+

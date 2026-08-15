@@ -8,7 +8,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "addon\BetterQuestList"))
+$sourceRoot = $projectRoot
+$tocPath = Join-Path $sourceRoot "BetterQuestList.toc"
 $localConfigPath = Join-Path $projectRoot ".deploy.local.ps1"
 $BetterQuestListWowRoot = $null
 
@@ -28,7 +29,8 @@ if (-not $WowRoot) {
 & (Join-Path $PSScriptRoot "Validate.ps1")
 
 $resolvedWowRoot = [System.IO.Path]::GetFullPath($WowRoot)
-$addOnsRoot = [System.IO.Path]::GetFullPath((Join-Path $resolvedWowRoot "Interface\AddOns"))
+$interfaceRoot = Join-Path $resolvedWowRoot "Interface"
+$addOnsRoot = [System.IO.Path]::GetFullPath((Join-Path $interfaceRoot "AddOns"))
 if (-not (Test-Path -LiteralPath $addOnsRoot -PathType Container)) {
     throw "WoW AddOns directory does not exist: $addOnsRoot"
 }
@@ -47,8 +49,19 @@ if ((Test-Path -LiteralPath $destinationRoot) -and -not $NoClean) {
 }
 New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
 
-foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force) {
-    Copy-Item -LiteralPath $item.FullName -Destination $destinationRoot -Recurse -Force
+$addonEntries = @("BetterQuestList.toc")
+$addonEntries += Get-Content -LiteralPath $tocPath | Where-Object {
+    $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
+}
+
+foreach ($entry in $addonEntries) {
+    $directorySeparator = [System.IO.Path]::DirectorySeparatorChar
+    $relativePath = $entry.Trim().Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)
+    $sourcePath = [System.IO.Path]::GetFullPath((Join-Path $sourceRoot $relativePath))
+    $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $destinationRoot $relativePath))
+    $destinationDirectory = [System.IO.Directory]::GetParent($destinationPath).FullName
+    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
 }
 
 Write-Host "Deployed BetterQuestList to $destinationRoot"

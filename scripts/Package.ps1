@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $projectRoot "addon\BetterQuestList"))
+$sourceRoot = $projectRoot
 $tocPath = Join-Path $sourceRoot "BetterQuestList.toc"
 
 & (Join-Path $PSScriptRoot "Validate.ps1")
@@ -30,8 +30,19 @@ $stagedAddon = Join-Path $temporaryRoot "BetterQuestList"
 
 try {
     New-Item -ItemType Directory -Path $stagedAddon -Force | Out-Null
-    foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination $stagedAddon -Recurse -Force
+
+    $addonEntries = @("BetterQuestList.toc")
+    $addonEntries += Get-Content -LiteralPath $tocPath | Where-Object {
+        $_ -and -not $_.StartsWith("##") -and -not $_.StartsWith("#")
+    }
+    foreach ($entry in $addonEntries) {
+        $directorySeparator = [System.IO.Path]::DirectorySeparatorChar
+        $relativePath = $entry.Trim().Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)
+        $sourcePath = [System.IO.Path]::GetFullPath((Join-Path $sourceRoot $relativePath))
+        $stagedPath = [System.IO.Path]::GetFullPath((Join-Path $stagedAddon $relativePath))
+        $stagedDirectory = [System.IO.Directory]::GetParent($stagedPath).FullName
+        New-Item -ItemType Directory -Path $stagedDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $sourcePath -Destination $stagedPath -Force
     }
 
     if (Test-Path -LiteralPath $zipPath -PathType Leaf) {

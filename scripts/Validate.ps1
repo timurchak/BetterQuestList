@@ -7,8 +7,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$addonRoot = Join-Path $projectRoot "addon\BetterQuestList"
-$tocPath = Join-Path $addonRoot "BetterQuestList.toc"
+$addonRoot = $projectRoot
+$tocPath = Join-Path $projectRoot "BetterQuestList.toc"
 
 if (-not (Test-Path -LiteralPath $tocPath -PathType Leaf)) {
     throw "Missing TOC file: $tocPath"
@@ -35,9 +35,10 @@ $manifestEntries = $tocLines | Where-Object {
 }
 
 $missingFiles = @()
-$addonPrefix = $addonRoot.TrimEnd('\') + '\'
+$directorySeparator = [System.IO.Path]::DirectorySeparatorChar
+$addonPrefix = $addonRoot.TrimEnd([char[]]@([char]92, [char]47)) + $directorySeparator
 foreach ($entry in $manifestEntries) {
-    $relativePath = $entry.Trim() -replace '/', '\'
+    $relativePath = $entry.Trim().Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)
     $fullPath = [System.IO.Path]::GetFullPath((Join-Path $addonRoot $relativePath))
     if (-not $fullPath.StartsWith($addonPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "TOC entry escapes the addon directory: $entry"

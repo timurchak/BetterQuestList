@@ -1,0 +1,16 @@
+package-as: BetterQuestList
+
+enable-nolib-creation: no
+
+ignore:
+  - .github
+  - .gitignore
+  - .gitattributes
+  - .editorconfig
+  - .deploy.local.ps1
+  - .deploy.local.ps1.example
+  - .pkgmeta
+  - AGENTS.md
+  - README.md
+  - scripts
+  - dist

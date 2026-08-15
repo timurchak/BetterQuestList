@@ -1,4 +1,6 @@
 dist/
+.release/
+Release/
 *.zip
 .deploy.local.ps1
 .idea/
