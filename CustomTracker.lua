@@ -805,6 +805,33 @@ local function LayoutObjectiveWidgets(widgetContainer, widgets)
     end
 end
 
+local function RemoveAnimatingScenarioWidgets(widgetContainer)
+    if type(widgetContainer.widgetFrames) ~= "table"
+        or type(widgetContainer.RemoveWidget) ~= "function"
+    then
+        return 0
+    end
+
+    local widgetIDs = {}
+    for widgetID, widgetFrame in pairs(widgetContainer.widgetFrames) do
+        -- ProcessAllWidgets intentionally keeps obsolete widgets alive for
+        -- their fade-out animation. Delve stages can replace one full card
+        -- with another, which makes both cards overlap in our compact host.
+        if widgetFrame.markedForRemove then
+            widgetIDs[#widgetIDs + 1] = widgetID
+        end
+    end
+
+    local removed = 0
+    for _, widgetID in ipairs(widgetIDs) do
+        local ok = pcall(widgetContainer.RemoveWidget, widgetContainer, widgetID)
+        if ok then
+            removed = removed + 1
+        end
+    end
+    return removed
+end
+
 local function RefreshScenarioWidgetData(state, widgetContainer)
     if not state.scenarioWidgetRefreshPending
         or type(widgetContainer.ProcessAllWidgets) ~= "function"
@@ -813,8 +840,10 @@ local function RefreshScenarioWidgetData(state, widgetContainer)
     end
 
     local ok = pcall(widgetContainer.ProcessAllWidgets, widgetContainer)
+    local removed = ok and RemoveAnimatingScenarioWidgets(widgetContainer) or 0
     state.scenarioWidgetLastRefreshTime = GetTime()
     state.scenarioWidgetLastRefreshSucceeded = ok
+    state.scenarioWidgetLastRemovedCount = removed
     if ok then
         state.scenarioWidgetRefreshPending = false
     end
@@ -1417,11 +1446,12 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(container and container.layoutFunc == LayoutScenarioWidgets),
         DebugValue(container and container.GetNumWidgetsShowing and container:GetNumWidgetsShowing())
     )
-    lines[#lines + 1] = ("fallbackWidgetRefresh pending=%s reason=%s time=%s succeeded=%s"):format(
+    lines[#lines + 1] = ("fallbackWidgetRefresh pending=%s reason=%s time=%s succeeded=%s removed=%s"):format(
         DebugValue(state.scenarioWidgetRefreshPending),
         DebugValue(state.scenarioWidgetRefreshReason),
         DebugValue(state.scenarioWidgetLastRefreshTime),
-        DebugValue(state.scenarioWidgetLastRefreshSucceeded)
+        DebugValue(state.scenarioWidgetLastRefreshSucceeded),
+        DebugValue(state.scenarioWidgetLastRemovedCount)
     )
 
     if container and container.widgetFrames then
