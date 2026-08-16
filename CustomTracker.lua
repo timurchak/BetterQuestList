@@ -665,9 +665,10 @@ local function CreateRow(state)
     row:SetScript("OnEnter", function(self)
         if self.questID or (self.entry and self.entry.kind) then
             self.highlight:Show()
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:SetText(self.questTitle or "", 1, 0.82, 0)
-            GameTooltip:AddLine(
+            local tooltip = state.addon:GetTooltip()
+            tooltip:SetOwner(self, "ANCHOR_LEFT")
+            tooltip:SetText(self.questTitle or "", 1, 0.82, 0)
+            tooltip:AddLine(
                 self.entry and self.entry.kind
                     and state.addon.text.trackingClickHint
                     or state.addon.text.questClickHint,
@@ -676,16 +677,16 @@ local function CreateRow(state)
                 1,
                 true
             )
-            GameTooltip:AddLine(state.addon.text.questUntrackHint, 0.8, 0.8, 0.8, true)
-            if self.questID and IsInGroup() and GameTooltip.SetQuestPartyProgress then
-                GameTooltip:SetQuestPartyProgress(self.questID)
+            tooltip:AddLine(state.addon.text.questUntrackHint, 0.8, 0.8, 0.8, true)
+            if self.questID and IsInGroup() and tooltip.SetQuestPartyProgress then
+                tooltip:SetQuestPartyProgress(self.questID)
             end
-            GameTooltip:Show()
+            tooltip:Show()
         end
     end)
     row:SetScript("OnLeave", function(self)
         self.highlight:Hide()
-        GameTooltip:Hide()
+        state.addon:HideTooltip()
     end)
     row:SetScript("OnClick", function(self, button)
         local questID = self.questID
@@ -1320,6 +1321,32 @@ local function AddObjectiveRow(state, quest, objective)
     PlaceRow(state, row, rowHeight)
 end
 
+local function AddEnhanceQoLDamageMeterRow(state, entry)
+    local addon = state.addon
+    local frame = addon:GetEnhanceQoLDamageMeterFrame(entry.windowIndex)
+    if not frame or not frame:IsShown() then
+        return false
+    end
+
+    local row = AcquireRow(state)
+    row:EnableMouse(false)
+    row.text:Hide()
+    row.icon:Hide()
+    frame = addon:AttachEnhanceQoLDamageMeterFrame(row, entry.category, entry.windowIndex)
+    if not frame then
+        row:Hide()
+        return false
+    end
+
+    state.enhanceQoLDamageMeterRows[entry.category] = row
+    state.enhanceQoLDamageMeterFrames[entry.category] = frame
+    local frameScale = GetSafeNumber(frame:GetEffectiveScale(), 1)
+    local rowScale = math.max(GetSafeNumber(row:GetEffectiveScale(), 1), 0.01)
+    local height = math.max(GetSafeNumber(frame:GetHeight(), 60) * (frameScale / rowScale), 60)
+    PlaceRow(state, row, height)
+    return true
+end
+
 local function GetLogicalScrollRange(state)
     local viewportHeight = math.max(GetSafeNumber(state.scrollFrame:GetHeight(), 1), 1)
     return math.max(0, state.contentHeight + FRAME_BOTTOM_PADDING - viewportHeight)
@@ -1478,6 +1505,32 @@ function BQL:CollectCustomDebugInfo()
                 DebugValue(entries and #entries or 0)
             )
         end
+
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "Tracked entries"
+        for _, category in ipairs(self:ReconcileOrder()) do
+            for entryIndex, entry in ipairs(state.snapshot.categories[category] or {}) do
+                if not entry.isEnhanceQoLDamageMeter then
+                    lines[#lines + 1] = ("entry category=%s index=%s questID=%s title=%s complete=%s ready=%s"):format(
+                        category,
+                        DebugValue(entryIndex),
+                        DebugValue(entry.questID),
+                        DebugValue(entry.title),
+                        DebugValue(entry.isComplete),
+                        DebugValue(entry.readyForTurnIn)
+                    )
+                    for objectiveIndex, objective in ipairs(entry.objectives or {}) do
+                        lines[#lines + 1] = ("  objective index=%s type=%s finished=%s progress=%s text=%s"):format(
+                            DebugValue(objectiveIndex),
+                            DebugValue(objective.type),
+                            DebugValue(objective.finished),
+                            DebugValue(objective.progress),
+                            DebugValue(objective.text)
+                        )
+                    end
+                end
+            end
+        end
     end
 
     local scenario = state.snapshot
@@ -1540,6 +1593,25 @@ function BQL:CollectCustomDebugInfo()
     DescribeDebugRegion(lines, "ScenarioRow", state.scenarioWidgetRow)
     DescribeDebugRegion(lines, "FallbackScenarioWidgetContainer", state.scenarioWidgetContainer)
     DescribeDebugRegion(lines, "ObjectiveWidgetContainer", state.objectiveWidgetContainer)
+    lines[#lines + 1] = ("enhanceQoLDamageMeter availableWindows=%s"):format(
+        DebugValue(self.GetEnhanceQoLDamageMeterWindowCount
+            and self:GetEnhanceQoLDamageMeterWindowCount()
+            or 0)
+    )
+    for slot, category in ipairs(self.DAMAGE_METER_CATEGORIES or {}) do
+        local record = self.enhanceQoLDamageMeterIntegration
+            and self.enhanceQoLDamageMeterIntegration.records[category]
+        lines[#lines + 1] = ("damageMeterSlot %s category=%s window=%s embedded=%s"):format(
+            DebugValue(slot),
+            category,
+            DebugValue(self.db.enhanceQoLDamageMeterWindows[slot]),
+            DebugValue(record and record.embedded)
+        )
+        DescribeDebugRegion(lines, ("DamageMeterRow[%d]"):format(slot),
+            state.enhanceQoLDamageMeterRows and state.enhanceQoLDamageMeterRows[category])
+        DescribeDebugRegion(lines, ("DamageMeterFrame[%d]"):format(slot),
+            state.enhanceQoLDamageMeterFrames and state.enhanceQoLDamageMeterFrames[category])
+    end
 
     local container = state.scenarioWidgetContainer
     lines[#lines + 1] = ("container widgetSetID=%s setDirection=%s layoutIsCustom=%s widgetCount=%s"):format(
@@ -1626,6 +1698,9 @@ function BQL:RenderCustomTracker()
 
     SetTrackerGeometry(state)
     HideBlizzardTracker(state)
+    if self.ParkEnhanceQoLDamageMeterFrames then
+        self:ParkEnhanceQoLDamageMeterFrames()
+    end
 
     local previousScroll = state.scrollFrame:GetVerticalScroll()
     if IsSecret(previousScroll) then
@@ -1638,6 +1713,8 @@ function BQL:RenderCustomTracker()
     state.scenarioWidgetRow = nil
     state.nativeScenarioUsed = false
     state.objectiveWidgetUsed = false
+    state.enhanceQoLDamageMeterRows = {}
+    state.enhanceQoLDamageMeterFrames = {}
     if state.objectiveWidgetContainer then
         state.objectiveWidgetContainer:SetAlpha(0)
     end
@@ -1654,9 +1731,12 @@ function BQL:RenderCustomTracker()
 
                 local firstQuest = quests[1]
                 if firstQuest then
-                    local categoryLabel = (firstQuest.isScenario or firstQuest.isObjectiveWidget)
-                        and firstQuest.title
-                        or nil
+                    local categoryLabel
+                    if self:GetCustomModuleLabel(category) ~= "" then
+                        categoryLabel = self:GetModuleLabel(category)
+                    elseif firstQuest.isScenario or firstQuest.isObjectiveWidget then
+                        categoryLabel = firstQuest.title
+                    end
                     AddCategoryRow(state, category, categoryLabel)
                     hasVisibleCategory = true
                     for questIndex, quest in ipairs(quests) do
@@ -1667,25 +1747,31 @@ function BQL:RenderCustomTracker()
                             AddScenarioCard(state, quest)
                         elseif quest.isObjectiveWidget then
                             AddObjectiveWidgetRow(state)
+                        elseif quest.isEnhanceQoLDamageMeter then
+                            AddEnhanceQoLDamageMeterRow(state, quest)
                         else
                             AddQuestTitleRow(state, quest)
                         end
-                        if #(quest.objectives or {}) > 0 then
+                        if not quest.isEnhanceQoLDamageMeter
+                            and #(quest.objectives or {}) > 0
+                        then
                             AddVerticalSpacing(state, self.db.questObjectiveSpacing)
                         end
-                        for _, objective in ipairs(quest.objectives or {}) do
-                            AddObjectiveRow(state, quest, objective)
-                            if objective.timerDuration and objective.timerStartTime then
-                                AddTimerRow(
-                                    state,
-                                    quest,
-                                    objective.timerDuration,
-                                    objective.timerStartTime
-                                )
+                        if not quest.isEnhanceQoLDamageMeter then
+                            for _, objective in ipairs(quest.objectives or {}) do
+                                AddObjectiveRow(state, quest, objective)
+                                if objective.timerDuration and objective.timerStartTime then
+                                    AddTimerRow(
+                                        state,
+                                        quest,
+                                        objective.timerDuration,
+                                        objective.timerStartTime
+                                    )
+                                end
                             end
+                            AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
+                            visibleQuestCount = visibleQuestCount + 1
                         end
-                        AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
-                        visibleQuestCount = visibleQuestCount + 1
                     end
                 end
             end

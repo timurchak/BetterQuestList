@@ -6,6 +6,15 @@ BQL.addonName = addonName
 BQL.version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "dev"
 BQL.ICON_PATH = "Interface\\AddOns\\BetterQuestList\\Media\\BetterQuestListIcon.tga"
 
+BQL.DAMAGE_METER_CATEGORIES = {
+    "EnhanceQoLDamageMeter1",
+    "EnhanceQoLDamageMeter2",
+    "EnhanceQoLDamageMeter3",
+    "EnhanceQoLDamageMeter4",
+    "EnhanceQoLDamageMeter5",
+}
+BQL.LEGACY_DAMAGE_METER_CATEGORY = "EnhanceQoLDamageMeter"
+
 BQL.DEFAULT_ORDER = {
     "ScenarioObjectiveTracker",
     "UIWidgetObjectiveTracker",
@@ -18,6 +27,11 @@ BQL.DEFAULT_ORDER = {
     "ProfessionsRecipeTracker",
     "BonusObjectiveTracker",
     "WorldQuestObjectiveTracker",
+    "EnhanceQoLDamageMeter1",
+    "EnhanceQoLDamageMeter2",
+    "EnhanceQoLDamageMeter3",
+    "EnhanceQoLDamageMeter4",
+    "EnhanceQoLDamageMeter5",
 }
 
 BQL.FONT_CHOICES = { "default", "chat", "quest", "system" }
@@ -47,8 +61,85 @@ function BQL:Print(message)
     print(("|T%s:14:14:0:0|t |cff33ff99BetterQuestList:|r %s"):format(self.ICON_PATH, message))
 end
 
+function BQL:GetTooltip()
+    if not self.tooltip then
+        -- Keep addon-owned anchors and quest data away from Blizzard's shared
+        -- GameTooltip, whose widget container may later process secret values.
+        local tooltip = CreateFrame(
+            "GameTooltip",
+            "BetterQuestListTooltip",
+            UIParent,
+            "GameTooltipTemplate"
+        )
+        tooltip:SetFrameStrata("TOOLTIP")
+        self.tooltip = tooltip
+    end
+
+    return self.tooltip
+end
+
+function BQL:HideTooltip()
+    if self.tooltip then
+        self.tooltip:Hide()
+    end
+end
+
 function BQL:GetModuleLabel(name)
+    local customLabel = self.db
+        and self.db.categoryLabels
+        and self.db.categoryLabels[name]
+    if type(customLabel) == "string" and customLabel ~= "" then
+        return customLabel
+    end
     return self.fallbackLabels[name] or name
+end
+
+function BQL:GetDefaultModuleLabel(name)
+    return self.fallbackLabels[name] or name
+end
+
+function BQL:GetCustomModuleLabel(name)
+    local value = self.db
+        and self.db.categoryLabels
+        and self.db.categoryLabels[name]
+    return type(value) == "string" and value or ""
+end
+
+function BQL:SetCustomModuleLabel(name, value)
+    if not self.db or type(self.db.categoryLabels) ~= "table" then
+        return
+    end
+
+    value = type(value) == "string" and strtrim(value) or ""
+    if value == "" then
+        self.db.categoryLabels[name] = nil
+    else
+        self.db.categoryLabels[name] = value
+    end
+    self:RequestCustomRefresh(false)
+    if self.RefreshOptions then
+        self:RefreshOptions()
+    end
+    if self.RefreshCategoryNames then
+        self:RefreshCategoryNames()
+    end
+    if self.RefreshEditModeAppearancePanel then
+        self:RefreshEditModeAppearancePanel()
+    end
+end
+
+function BQL:ResetCustomModuleLabels()
+    self.db.categoryLabels = {}
+    self:RequestCustomRefresh(false)
+    if self.RefreshOptions then
+        self:RefreshOptions()
+    end
+    if self.RefreshCategoryNames then
+        self:RefreshCategoryNames()
+    end
+    if self.RefreshEditModeAppearancePanel then
+        self:RefreshEditModeAppearancePanel()
+    end
 end
 
 function BQL:GetAvailableModuleNames()
@@ -65,7 +156,10 @@ function BQL:ReconcileOrder()
         availableSet[name] = true
     end
 
-    for _, name in ipairs(self.db.moduleOrder or {}) do
+    for _, storedName in ipairs(self.db.moduleOrder or {}) do
+        local name = storedName == self.LEGACY_DAMAGE_METER_CATEGORY
+            and self.DAMAGE_METER_CATEGORIES[1]
+            or storedName
         if availableSet[name] and not seen[name] then
             seen[name] = true
             reconciled[#reconciled + 1] = name
@@ -169,6 +263,9 @@ function BQL:MoveModule(index, delta)
     if self.RefreshOptions then
         self:RefreshOptions()
     end
+    if self.RefreshCategoryNames then
+        self:RefreshCategoryNames()
+    end
 end
 
 function BQL:ResetOrder()
@@ -176,6 +273,9 @@ function BQL:ResetOrder()
     self:ApplyModuleOrder()
     if self.RefreshOptions then
         self:RefreshOptions()
+    end
+    if self.RefreshCategoryNames then
+        self:RefreshCategoryNames()
     end
 end
 
@@ -340,6 +440,16 @@ function BQL:Initialize()
     if type(self.db.moduleOrder) ~= "table" then
         self.db.moduleOrder = CopyArray(self.DEFAULT_ORDER)
     end
+    if type(self.db.categoryLabels) ~= "table" then
+        self.db.categoryLabels = {}
+    end
+    if self.db.categoryLabels[self.LEGACY_DAMAGE_METER_CATEGORY]
+        and not self.db.categoryLabels[self.DAMAGE_METER_CATEGORIES[1]]
+    then
+        self.db.categoryLabels[self.DAMAGE_METER_CATEGORIES[1]] =
+            self.db.categoryLabels[self.LEGACY_DAMAGE_METER_CATEGORY]
+    end
+    self.db.categoryLabels[self.LEGACY_DAMAGE_METER_CATEGORY] = nil
     if self.db.schemaVersion ~= 3 then
         self.db.schemaVersion = 3
         self.db.scrollEnabled = true
@@ -404,6 +514,26 @@ function BQL:Initialize()
         0,
         math.min(math.floor(self.db.questObjectiveSpacing + 0.5), 20)
     )
+    if type(self.db.enhanceQoLDamageMeterWindows) ~= "table" then
+        self.db.enhanceQoLDamageMeterWindows = {
+            tonumber(self.db.enhanceQoLDamageMeterWindow) or 0,
+        }
+    end
+    local assignedDamageMeterWindows = {}
+    for slot = 1, #self.DAMAGE_METER_CATEGORIES do
+        local windowIndex = tonumber(self.db.enhanceQoLDamageMeterWindows[slot]) or 0
+        windowIndex = math.max(
+            0,
+            math.min(math.floor(windowIndex + 0.5), 5)
+        )
+        if windowIndex > 0 and assignedDamageMeterWindows[windowIndex] then
+            windowIndex = 0
+        elseif windowIndex > 0 then
+            assignedDamageMeterWindows[windowIndex] = true
+        end
+        self.db.enhanceQoLDamageMeterWindows[slot] = windowIndex
+    end
+    self.db.enhanceQoLDamageMeterWindow = nil
 
     self:ReconcileOrder()
 
@@ -413,6 +543,7 @@ function BQL:Initialize()
 
     self:CreateOptions()
     self:InitializeCustomTracker()
+    self:InitializeEnhanceQoLDamageMeterIntegration()
     self:InitializeEditModeIntegration()
     self:Print(self.text.customMode)
 end

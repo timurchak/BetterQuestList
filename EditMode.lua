@@ -1,7 +1,7 @@
 local _, BQL = ...
 
 local PANEL_WIDTH = 540
-local PANEL_HEIGHT = 570
+local PANEL_HEIGHT = 770
 local LFG_EYE_TEXTURE = "Interface\\LFGFrame\\LFG-Eye"
 local LFG_EYE_FRAME_OPEN = 0
 local LFG_EYE_FRAME_CLOSED = 4
@@ -51,18 +51,29 @@ local function CreateChoiceDropdown(parent, choices, getValue, setValue)
     local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
     dropdown:SetSize(230, 30)
 
+    local function GetChoices()
+        if type(choices) == "function" then
+            return choices()
+        end
+        return choices
+    end
+
     function dropdown:Refresh()
         local selectedValue = getValue()
-        for _, choice in ipairs(choices) do
+        local availableChoices = GetChoices()
+        for _, choice in ipairs(availableChoices) do
             if choice.value == selectedValue then
                 self:SetDefaultText(choice.label)
                 return
             end
         end
+        if availableChoices[1] then
+            self:SetDefaultText(availableChoices[1].label)
+        end
     end
 
     dropdown:SetupMenu(function(_, rootDescription)
-        for _, choice in ipairs(choices) do
+        for _, choice in ipairs(GetChoices()) do
             local value = choice.value
             rootDescription:CreateRadio(choice.label, function()
                 return getValue() == value
@@ -140,7 +151,11 @@ local function CreateDropdownRow(parent, labelText, choices, getValue, setValue)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(38)
 
-    local label = CreateLabel(row, "GameFontHighlightMedium", labelText)
+    local function GetLabelText()
+        return type(labelText) == "function" and labelText() or labelText
+    end
+
+    local label = CreateLabel(row, "GameFontHighlightMedium", GetLabelText())
     label:SetPoint("LEFT", 0, 0)
     label:SetWidth(220)
 
@@ -148,6 +163,7 @@ local function CreateDropdownRow(parent, labelText, choices, getValue, setValue)
     dropdown:SetPoint("LEFT", label, "RIGHT", 5, -2)
 
     function row:Refresh()
+        label:SetText(GetLabelText())
         dropdown:Refresh()
     end
 
@@ -348,15 +364,18 @@ function BQL:InitializeEditModeIntegration()
     end)
     eyeButton:SetScript("OnEnter", function(button)
         local integration = self.editModeIntegration
-        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-        GameTooltip:SetText(
+        local tooltip = self:GetTooltip()
+        tooltip:SetOwner(button, "ANCHOR_RIGHT")
+        tooltip:SetText(
             integration and integration.overlayHidden
                 and self.text.showEditModeHighlight
                 or self.text.hideEditModeHighlight
         )
-        GameTooltip:Show()
+        tooltip:Show()
     end)
-    eyeButton:SetScript("OnLeave", GameTooltip_Hide)
+    eyeButton:SetScript("OnLeave", function()
+        self:HideTooltip()
+    end)
     UpdateEyeButton(eyeButton, false)
 
     local fontChoices = {
@@ -415,6 +434,81 @@ function BQL:InitializeEditModeIntegration()
             end,
             function(value)
                 return ("%d px"):format(value)
+            end
+        ),
+        CreateDropdownRow(
+            panel,
+            function()
+                return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[1])
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterChoices()
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterWindow(1)
+            end,
+            function(value)
+                self:SetEnhanceQoLDamageMeterWindow(1, value)
+            end
+        ),
+        CreateDropdownRow(
+            panel,
+            function()
+                return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[2])
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterChoices()
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterWindow(2)
+            end,
+            function(value)
+                self:SetEnhanceQoLDamageMeterWindow(2, value)
+            end
+        ),
+        CreateDropdownRow(
+            panel,
+            function()
+                return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[3])
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterChoices()
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterWindow(3)
+            end,
+            function(value)
+                self:SetEnhanceQoLDamageMeterWindow(3, value)
+            end
+        ),
+        CreateDropdownRow(
+            panel,
+            function()
+                return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[4])
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterChoices()
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterWindow(4)
+            end,
+            function(value)
+                self:SetEnhanceQoLDamageMeterWindow(4, value)
+            end
+        ),
+        CreateDropdownRow(
+            panel,
+            function()
+                return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[5])
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterChoices()
+            end,
+            function()
+                return self:GetEnhanceQoLDamageMeterWindow(5)
+            end,
+            function(value)
+                self:SetEnhanceQoLDamageMeterWindow(5, value)
             end
         ),
         CreateDropdownRow(panel, self.text.font, fontChoices, function()

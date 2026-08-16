@@ -11,6 +11,13 @@ local CATEGORY_INITIATIVES = "InitiativeTasksObjectiveTracker"
 local CATEGORY_PROFESSIONS = "ProfessionsRecipeTracker"
 local CATEGORY_BONUS = "BonusObjectiveTracker"
 local CATEGORY_WORLD = "WorldQuestObjectiveTracker"
+local DAMAGE_METER_CATEGORIES = {
+    "EnhanceQoLDamageMeter1",
+    "EnhanceQoLDamageMeter2",
+    "EnhanceQoLDamageMeter3",
+    "EnhanceQoLDamageMeter4",
+    "EnhanceQoLDamageMeter5",
+}
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
@@ -159,12 +166,20 @@ local function ReadObjectives(addon, questID, previousQuest)
                 local progress = previousObjective and previousObjective.progress or nil
                 local progressText = previousObjective and previousObjective.progressText or nil
                 if objectiveType == "progressbar" then
-                    local progressValue, progressAvailable = SafeCall(_G.GetQuestProgressBarPercent, questID)
-                    if progressAvailable and type(progressValue) == "number" then
-                        progress = math.max(0, math.min(progressValue, 100))
+                    if finished then
+                        progress = 100
                         progressText = nil
                     else
-                        restricted = true
+                        local progressValue, progressAvailable = SafeCall(
+                            _G.GetQuestProgressBarPercent,
+                            questID
+                        )
+                        if progressAvailable and type(progressValue) == "number" then
+                            progress = math.max(0, math.min(progressValue, 100))
+                            progressText = nil
+                        else
+                            restricted = true
+                        end
                     end
                 else
                     progress = nil
@@ -1616,6 +1631,12 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
         end
     elseif previousSnapshot then
         PreserveCategory(CATEGORY_WORLD)
+    end
+
+    for _, category in ipairs(DAMAGE_METER_CATEGORIES) do
+        local damageMeterEntry = self.GetEnhanceQoLDamageMeterEntry
+            and self:GetEnhanceQoLDamageMeterEntry(category)
+        categories[category] = damageMeterEntry and { damageMeterEntry } or {}
     end
 
     for _, quests in pairs(categories) do

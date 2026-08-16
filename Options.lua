@@ -19,12 +19,13 @@ local function CreateMoveButton(parent, direction, tooltipText)
     button:SetDisabledTexture(texturePrefix .. "Disabled")
     button:SetHighlightTexture(texturePrefix .. "Highlight", "ADD")
     button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(tooltipText)
-        GameTooltip:Show()
+        local tooltip = BQL:GetTooltip()
+        tooltip:SetOwner(self, "ANCHOR_RIGHT")
+        tooltip:SetText(tooltipText)
+        tooltip:Show()
     end)
     button:SetScript("OnLeave", function()
-        GameTooltip:Hide()
+        BQL:HideTooltip()
     end)
     return button
 end
@@ -61,6 +62,127 @@ local function CreateChoiceDropdown(parent, choices, getValue, setValue)
         end
     end)
     return dropdown
+end
+
+function BQL:CreateCategoryNamesOptions(parentCategory)
+    if not Settings or not Settings.RegisterCanvasLayoutSubcategory then
+        return
+    end
+
+    local panel = CreateFrame("Frame")
+    panel.name = self.text.categoryNames
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
+
+    local controls = CreateFrame("Frame", nil, scrollFrame)
+    controls:SetSize(620, 720)
+    scrollFrame:SetScrollChild(controls)
+    panel:HookScript("OnSizeChanged", function(_, width)
+        if type(width) == "number" then
+            controls:SetWidth(math.max(width - 40, 560))
+        end
+    end)
+
+    local title = CreateLabel(controls, "GameFontNormalLarge", self.text.categoryNames)
+    title:SetPoint("TOPLEFT", 16, -16)
+
+    local description = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.categoryNamesDescription
+    )
+    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    description:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    description:SetWordWrap(true)
+
+    self.categoryNameRows = {}
+    for index = 1, MAX_ROWS do
+        local row = CreateFrame("Frame", nil, controls)
+        row:SetHeight(34)
+        row:SetPoint("LEFT", controls, "LEFT", 16, 0)
+        row:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+        if index == 1 then
+            row:SetPoint("TOP", description, "BOTTOM", 0, -14)
+        else
+            row:SetPoint("TOP", self.categoryNameRows[index - 1], "BOTTOM", 0, -4)
+        end
+
+        local defaultLabel = CreateLabel(row, "GameFontHighlight", "")
+        defaultLabel:SetPoint("LEFT", 0, 0)
+        defaultLabel:SetWidth(260)
+
+        local editBox = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        editBox:SetPoint("LEFT", defaultLabel, "RIGHT", 10, 0)
+        editBox:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        editBox:SetHeight(26)
+        editBox:SetAutoFocus(false)
+        editBox:SetMaxLetters(80)
+
+        local function SaveName()
+            if row.category then
+                self:SetCustomModuleLabel(row.category, editBox:GetText())
+            end
+        end
+        editBox:SetScript("OnEnterPressed", function(box)
+            SaveName()
+            box:ClearFocus()
+        end)
+        editBox:SetScript("OnEditFocusLost", SaveName)
+        editBox:SetScript("OnEscapePressed", function(box)
+            box:SetText(row.category and self:GetCustomModuleLabel(row.category) or "")
+            box:ClearFocus()
+        end)
+
+        row.defaultLabel = defaultLabel
+        row.editBox = editBox
+        self.categoryNameRows[index] = row
+    end
+
+    local reset = CreateFrame("Button", nil, controls, "UIPanelButtonTemplate")
+    reset:SetSize(190, 26)
+    reset:SetPoint("TOPLEFT", self.categoryNameRows[MAX_ROWS], "BOTTOMLEFT", 0, -14)
+    reset:SetText(self.text.resetCategoryNames)
+    reset:SetScript("OnClick", function()
+        self:ResetCustomModuleLabels()
+    end)
+
+    panel:SetScript("OnShow", function()
+        self:RefreshCategoryNames()
+    end)
+
+    self.categoryNamesPanel = panel
+    self.categoryNamesCategory = Settings.RegisterCanvasLayoutSubcategory(
+        parentCategory,
+        panel,
+        panel.name
+    )
+    self:RefreshCategoryNames()
+end
+
+function BQL:RefreshCategoryNames()
+    if not self.categoryNameRows or not self.db then
+        return
+    end
+
+    local order = self:ReconcileOrder()
+    for index, row in ipairs(self.categoryNameRows) do
+        local category = order[index]
+        row.category = category
+        if category then
+            row.defaultLabel:SetFormattedText(
+                self.text.categoryNameDefault,
+                self:GetDefaultModuleLabel(category)
+            )
+            if not row.editBox:HasFocus() then
+                row.editBox:SetText(self:GetCustomModuleLabel(category))
+            end
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
 end
 
 function BQL:CreateOptions()
@@ -422,6 +544,7 @@ function BQL:CreateOptions()
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(category)
         self.settingsCategory = category
+        self:CreateCategoryNamesOptions(category)
     end
 end
 
