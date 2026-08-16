@@ -9,6 +9,15 @@ local FRAME_BOTTOM_PADDING = 6
 local DATA_REFRESH_DELAY = 0.05
 local QUEST_TEXT_LEFT = FRAME_LEFT_OVERFLOW + 20
 local OBJECTIVE_TEXT_LEFT = QUEST_TEXT_LEFT + 14
+local TRACKER_WIDTH_MIN = 296
+local TRACKER_WIDTH_MAX = 600
+local TRACKER_HEIGHT_MIN = 250
+local TRACKER_HEIGHT_MAX = 1200
+
+BQL.TRACKER_WIDTH_MIN = TRACKER_WIDTH_MIN
+BQL.TRACKER_WIDTH_MAX = TRACKER_WIDTH_MAX
+BQL.TRACKER_HEIGHT_MIN = TRACKER_HEIGHT_MIN
+BQL.TRACKER_HEIGHT_MAX = TRACKER_HEIGHT_MAX
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
@@ -19,6 +28,13 @@ local function GetSafeNumber(value, fallback)
         return fallback
     end
     return value
+end
+
+local function ClampPixelValue(value, fallback, minimum, maximum)
+    if IsSecret(value) or type(value) ~= "number" then
+        value = fallback
+    end
+    return math.max(minimum, math.min(math.floor(value + 0.5), maximum))
 end
 
 local WESTERN_FONT_FILES = {
@@ -123,13 +139,54 @@ local function SetTrackerGeometry(state)
     local tracker = state.blizzardTracker
     local trackerWidth = GetSafeNumber(tracker:GetWidth(), 235)
     local trackerHeight = GetSafeNumber(tracker:GetHeight(), 600)
+    local defaultWidth = trackerWidth + FRAME_LEFT_OVERFLOW + FRAME_RIGHT_OVERFLOW
+    local addon = state.addon
+    local width = ClampPixelValue(
+        addon.db.trackerWidth,
+        defaultWidth,
+        TRACKER_WIDTH_MIN,
+        TRACKER_WIDTH_MAX
+    )
+    local height = ClampPixelValue(
+        addon.db.trackerHeight,
+        trackerHeight,
+        TRACKER_HEIGHT_MIN,
+        TRACKER_HEIGHT_MAX
+    )
+
+    addon.db.trackerWidth = width
+    addon.db.trackerHeight = height
 
     state.frame:ClearAllPoints()
-    state.frame:SetPoint("TOPLEFT", tracker, "TOPLEFT", -FRAME_LEFT_OVERFLOW, 0)
-    state.frame:SetSize(
-        math.max(trackerWidth + FRAME_LEFT_OVERFLOW + FRAME_RIGHT_OVERFLOW, 180),
-        math.max(trackerHeight, HEADER_HEIGHT + 40)
-    )
+    state.frame:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", FRAME_RIGHT_OVERFLOW, 0)
+    state.frame:SetSize(width, math.max(height, HEADER_HEIGHT + 40))
+end
+
+function BQL:SetCustomTrackerSize(width, height)
+    if type(width) == "number" and not IsSecret(width) then
+        self.db.trackerWidth = ClampPixelValue(
+            width,
+            self.db.trackerWidth or TRACKER_WIDTH_MIN,
+            TRACKER_WIDTH_MIN,
+            TRACKER_WIDTH_MAX
+        )
+    end
+    if type(height) == "number" and not IsSecret(height) then
+        self.db.trackerHeight = ClampPixelValue(
+            height,
+            self.db.trackerHeight or TRACKER_HEIGHT_MIN,
+            TRACKER_HEIGHT_MIN,
+            TRACKER_HEIGHT_MAX
+        )
+    end
+
+    if self.customState then
+        SetTrackerGeometry(self.customState)
+        self:RequestCustomRefresh(false)
+    end
+    if self.PositionEditModeAppearancePanel then
+        self:PositionEditModeAppearancePanel()
+    end
 end
 
 local function HideBlizzardTracker(state)
@@ -1406,6 +1463,10 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(self.db.fontOutline),
         DebugValue(self.db.fontShadow),
         DebugValue(self.db.background)
+    )
+    lines[#lines + 1] = ("configuredSize=%sx%s"):format(
+        DebugValue(self.db.trackerWidth),
+        DebugValue(self.db.trackerHeight)
     )
     lines[#lines + 1] = ("scroll=%s rawRange=%s logicalRange=%s"):format(
         DebugValue(state.scrollFrame:GetVerticalScroll()),

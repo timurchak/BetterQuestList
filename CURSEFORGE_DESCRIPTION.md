@@ -18,7 +18,7 @@ Unlike full tracker replacements, BetterQuestList does not modify or reparent Bl
 - Track regular quests, campaigns, world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets.
 - Use Blizzard-style right-click menus with quest details, map actions, sharing, abandoning, tracking controls, and locale-aware Wowhead links.
 - Customize fonts, outlines, shadows, tracker background, category header style, spacing, and offsets.
-- Adjust appearance through the addon settings or WoW Edit Mode.
+- Adjust appearance through the addon settings or WoW Edit Mode, including persistent tracker width and height controls.
 - Preserve the last readable objective progress when the game temporarily protects live values during combat.
 
 ## Getting started

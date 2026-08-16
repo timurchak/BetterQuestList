@@ -1,7 +1,7 @@
 local _, BQL = ...
 
 local PANEL_WIDTH = 540
-local PANEL_HEIGHT = 490
+local PANEL_HEIGHT = 570
 local LFG_EYE_TEXTURE = "Interface\\LFGFrame\\LFG-Eye"
 local LFG_EYE_FRAME_OPEN = 0
 local LFG_EYE_FRAME_CLOSED = 4
@@ -75,7 +75,15 @@ local function CreateChoiceDropdown(parent, choices, getValue, setValue)
     return dropdown
 end
 
-local function CreateSlider(parent, labelText, minimum, maximum, getValue, setValue)
+local function CreateSlider(
+    parent,
+    labelText,
+    minimum,
+    maximum,
+    getValue,
+    setValue,
+    formatValue
+)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(38)
 
@@ -91,7 +99,11 @@ local function CreateSlider(parent, labelText, minimum, maximum, getValue, setVa
         [MinimalSliderWithSteppersMixin.Label.Right] = CreateMinimalSliderFormatter(
             MinimalSliderWithSteppersMixin.Label.Right,
             function(value)
-                return ("%+d px"):format(math.floor(value + 0.5))
+                local roundedValue = math.floor(value + 0.5)
+                if formatValue then
+                    return formatValue(roundedValue)
+                end
+                return ("%+d px"):format(roundedValue)
             end
         ),
     }
@@ -353,6 +365,36 @@ function BQL:InitializeEditModeIntegration()
     }
 
     local optionRows = {
+        CreateSlider(
+            panel,
+            self.text.trackerWidth,
+            self.TRACKER_WIDTH_MIN,
+            self.TRACKER_WIDTH_MAX,
+            function()
+                return self.db.trackerWidth
+            end,
+            function(value)
+                self:SetCustomTrackerSize(value, nil)
+            end,
+            function(value)
+                return ("%d px"):format(value)
+            end
+        ),
+        CreateSlider(
+            panel,
+            self.text.trackerHeight,
+            self.TRACKER_HEIGHT_MIN,
+            self.TRACKER_HEIGHT_MAX,
+            function()
+                return self.db.trackerHeight
+            end,
+            function(value)
+                self:SetCustomTrackerSize(nil, value)
+            end,
+            function(value)
+                return ("%d px"):format(value)
+            end
+        ),
         CreateDropdownRow(panel, self.text.font, fontChoices, function()
             return self.db.font
         end, function(value)
