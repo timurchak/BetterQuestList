@@ -69,30 +69,43 @@ function BQL:CreateOptions()
     self.optionsPanel = panel
     self.optionRows = {}
 
-    local icon = panel:CreateTexture(nil, "ARTWORK")
+    local scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
+
+    local controls = CreateFrame("Frame", nil, scrollFrame)
+    controls:SetSize(620, 1050)
+    scrollFrame:SetScrollChild(controls)
+    panel:HookScript("OnSizeChanged", function(_, width)
+        if type(width) == "number" then
+            controls:SetWidth(math.max(width - 40, 560))
+        end
+    end)
+
+    local icon = controls:CreateTexture(nil, "ARTWORK")
     icon:SetSize(36, 36)
     icon:SetPoint("TOPLEFT", 16, -12)
     icon:SetTexture(self.ICON_PATH)
 
-    local title = CreateLabel(panel, "GameFontNormalLarge", self.text.title)
+    local title = CreateLabel(controls, "GameFontNormalLarge", self.text.title)
     title:SetPoint("LEFT", icon, "RIGHT", 8, 0)
 
-    local description = CreateLabel(panel, "GameFontHighlightSmall", self.text.description)
+    local description = CreateLabel(controls, "GameFontHighlightSmall", self.text.description)
     description:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
-    description:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    description:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     description:SetWordWrap(true)
 
-    local compatibilityWarning = CreateLabel(panel, "GameFontHighlightSmall", self.text.compatibilityWarning)
+    local compatibilityWarning = CreateLabel(controls, "GameFontHighlightSmall", self.text.compatibilityWarning)
     compatibilityWarning:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -12)
-    compatibilityWarning:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    compatibilityWarning:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     compatibilityWarning:SetWordWrap(true)
 
-    local orderTitle = CreateLabel(panel, "GameFontNormal", self.text.order)
+    local orderTitle = CreateLabel(controls, "GameFontNormal", self.text.order)
     orderTitle:SetPoint("TOPLEFT", compatibilityWarning, "BOTTOMLEFT", 0, -18)
     self.orderTitle = orderTitle
 
     for index = 1, MAX_ROWS do
-        local row = CreateFrame("Frame", nil, panel)
+        local row = CreateFrame("Frame", nil, controls)
         row:SetSize(500, ROW_HEIGHT)
         if index == 1 then
             row:SetPoint("TOPLEFT", orderTitle, "BOTTOMLEFT", 0, -8)
@@ -124,7 +137,7 @@ function BQL:CreateOptions()
         self.optionRows[index] = row
     end
 
-    local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local reset = CreateFrame("Button", nil, controls, "UIPanelButtonTemplate")
     reset:SetSize(150, 24)
     reset:SetPoint("TOPLEFT", self.optionRows[MAX_ROWS], "BOTTOMLEFT", 0, -12)
     reset:SetText(self.text.reset)
@@ -133,7 +146,7 @@ function BQL:CreateOptions()
     end)
     self.resetButton = reset
 
-    local scrollCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    local scrollCheck = CreateFrame("CheckButton", nil, controls, "UICheckButtonTemplate")
     scrollCheck:SetPoint("TOPLEFT", reset, "BOTTOMLEFT", -4, -18)
     scrollCheck:SetScript("OnClick", function(button)
         self.db.scrollEnabled = button:GetChecked() and true or false
@@ -141,18 +154,18 @@ function BQL:CreateOptions()
     end)
     self.scrollCheck = scrollCheck
 
-    local scrollLabel = CreateLabel(panel, "GameFontNormal", self.text.scrolling)
+    local scrollLabel = CreateLabel(controls, "GameFontNormal", self.text.scrolling)
     scrollLabel:SetPoint("LEFT", scrollCheck, "RIGHT", 2, 0)
 
-    local scrollDescription = CreateLabel(panel, "GameFontHighlightSmall", self.text.scrollingDescription)
+    local scrollDescription = CreateLabel(controls, "GameFontHighlightSmall", self.text.scrollingDescription)
     scrollDescription:SetPoint("TOPLEFT", scrollCheck, "BOTTOMLEFT", 30, -2)
-    scrollDescription:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    scrollDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     scrollDescription:SetWordWrap(true)
 
-    local appearanceTitle = CreateLabel(panel, "GameFontNormal", self.text.appearance)
+    local appearanceTitle = CreateLabel(controls, "GameFontNormal", self.text.appearance)
     appearanceTitle:SetPoint("TOPLEFT", scrollDescription, "BOTTOMLEFT", -30, -18)
 
-    local fontLabel = CreateLabel(panel, "GameFontHighlight", self.text.font)
+    local fontLabel = CreateLabel(controls, "GameFontHighlight", self.text.font)
     fontLabel:SetPoint("TOPLEFT", appearanceTitle, "BOTTOMLEFT", 0, -18)
     fontLabel:SetWidth(190)
 
@@ -162,7 +175,7 @@ function BQL:CreateOptions()
         { value = "quest", label = self.text.fontQuest },
         { value = "system", label = self.text.fontSystem },
     }
-    local fontDropdown = CreateChoiceDropdown(panel, fontChoices, function()
+    local fontDropdown = CreateChoiceDropdown(controls, fontChoices, function()
         return self.db.font
     end, function(value)
         self.db.font = value
@@ -171,7 +184,7 @@ function BQL:CreateOptions()
     fontDropdown:SetPoint("LEFT", fontLabel, "RIGHT", 6, -2)
     self.fontDropdown = fontDropdown
 
-    local backgroundLabel = CreateLabel(panel, "GameFontHighlight", self.text.background)
+    local backgroundLabel = CreateLabel(controls, "GameFontHighlight", self.text.background)
     backgroundLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -24)
     backgroundLabel:SetWidth(190)
 
@@ -180,7 +193,7 @@ function BQL:CreateOptions()
         { value = "subtle", label = self.text.backgroundSubtle },
         { value = "dark", label = self.text.backgroundDark },
     }
-    local backgroundDropdown = CreateChoiceDropdown(panel, backgroundChoices, function()
+    local backgroundDropdown = CreateChoiceDropdown(controls, backgroundChoices, function()
         return self.db.background
     end, function(value)
         self.db.background = value
@@ -189,7 +202,7 @@ function BQL:CreateOptions()
     backgroundDropdown:SetPoint("LEFT", backgroundLabel, "RIGHT", 6, -2)
     self.backgroundDropdown = backgroundDropdown
 
-    local categoryStyleLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryStyle)
+    local categoryStyleLabel = CreateLabel(controls, "GameFontHighlight", self.text.categoryStyle)
     categoryStyleLabel:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -24)
     categoryStyleLabel:SetWidth(190)
 
@@ -197,7 +210,7 @@ function BQL:CreateOptions()
         { value = "blizzard", label = self.text.categoryStyleBlizzard },
         { value = "plain", label = self.text.categoryStylePlain },
     }
-    local categoryStyleDropdown = CreateChoiceDropdown(panel, categoryStyleChoices, function()
+    local categoryStyleDropdown = CreateChoiceDropdown(controls, categoryStyleChoices, function()
         return self.db.categoryStyle
     end, function(value)
         self.db.categoryStyle = value
@@ -206,11 +219,11 @@ function BQL:CreateOptions()
     categoryStyleDropdown:SetPoint("LEFT", categoryStyleLabel, "RIGHT", 6, -2)
     self.categoryStyleDropdown = categoryStyleDropdown
 
-    local categoryOffsetLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryOffset)
+    local categoryOffsetLabel = CreateLabel(controls, "GameFontHighlight", self.text.categoryOffset)
     categoryOffsetLabel:SetPoint("TOPLEFT", categoryStyleLabel, "BOTTOMLEFT", 0, -26)
     categoryOffsetLabel:SetWidth(190)
 
-    local categoryOffsetSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    local categoryOffsetSlider = CreateFrame("Slider", nil, controls, "OptionsSliderTemplate")
     categoryOffsetSlider:SetPoint("LEFT", categoryOffsetLabel, "RIGHT", 18, 0)
     categoryOffsetSlider:SetWidth(170)
     categoryOffsetSlider:SetMinMaxValues(-20, 20)
@@ -218,7 +231,7 @@ function BQL:CreateOptions()
     categoryOffsetSlider:SetObeyStepOnDrag(true)
     self.categoryOffsetSlider = categoryOffsetSlider
 
-    local categoryOffsetValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    local categoryOffsetValue = CreateLabel(controls, "GameFontHighlightSmall", "")
     categoryOffsetValue:SetPoint("LEFT", categoryOffsetSlider, "RIGHT", 12, 0)
     categoryOffsetValue:SetWidth(55)
     self.categoryOffsetValue = categoryOffsetValue
@@ -232,11 +245,11 @@ function BQL:CreateOptions()
         end
     end)
 
-    local categoryTextOffsetLabel = CreateLabel(panel, "GameFontHighlight", self.text.categoryTextOffset)
+    local categoryTextOffsetLabel = CreateLabel(controls, "GameFontHighlight", self.text.categoryTextOffset)
     categoryTextOffsetLabel:SetPoint("TOPLEFT", categoryOffsetLabel, "BOTTOMLEFT", 0, -28)
     categoryTextOffsetLabel:SetWidth(190)
 
-    local categoryTextOffsetSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    local categoryTextOffsetSlider = CreateFrame("Slider", nil, controls, "OptionsSliderTemplate")
     categoryTextOffsetSlider:SetPoint("LEFT", categoryTextOffsetLabel, "RIGHT", 18, 0)
     categoryTextOffsetSlider:SetWidth(170)
     categoryTextOffsetSlider:SetMinMaxValues(-100, 100)
@@ -244,7 +257,7 @@ function BQL:CreateOptions()
     categoryTextOffsetSlider:SetObeyStepOnDrag(true)
     self.categoryTextOffsetSlider = categoryTextOffsetSlider
 
-    local categoryTextOffsetValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    local categoryTextOffsetValue = CreateLabel(controls, "GameFontHighlightSmall", "")
     categoryTextOffsetValue:SetPoint("LEFT", categoryTextOffsetSlider, "RIGHT", 12, 0)
     categoryTextOffsetValue:SetWidth(55)
     self.categoryTextOffsetValue = categoryTextOffsetValue
@@ -258,11 +271,11 @@ function BQL:CreateOptions()
         end
     end)
 
-    local categorySpacingLabel = CreateLabel(panel, "GameFontHighlight", self.text.categorySpacing)
+    local categorySpacingLabel = CreateLabel(controls, "GameFontHighlight", self.text.categorySpacing)
     categorySpacingLabel:SetPoint("TOPLEFT", categoryTextOffsetLabel, "BOTTOMLEFT", 0, -28)
     categorySpacingLabel:SetWidth(190)
 
-    local categorySpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    local categorySpacingSlider = CreateFrame("Slider", nil, controls, "OptionsSliderTemplate")
     categorySpacingSlider:SetPoint("LEFT", categorySpacingLabel, "RIGHT", 18, 0)
     categorySpacingSlider:SetWidth(170)
     categorySpacingSlider:SetMinMaxValues(0, 30)
@@ -270,7 +283,7 @@ function BQL:CreateOptions()
     categorySpacingSlider:SetObeyStepOnDrag(true)
     self.categorySpacingSlider = categorySpacingSlider
 
-    local categorySpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    local categorySpacingValue = CreateLabel(controls, "GameFontHighlightSmall", "")
     categorySpacingValue:SetPoint("LEFT", categorySpacingSlider, "RIGHT", 12, 0)
     categorySpacingValue:SetWidth(55)
     self.categorySpacingValue = categorySpacingValue
@@ -284,11 +297,11 @@ function BQL:CreateOptions()
         end
     end)
 
-    local questSpacingLabel = CreateLabel(panel, "GameFontHighlight", self.text.questSpacing)
+    local questSpacingLabel = CreateLabel(controls, "GameFontHighlight", self.text.questSpacing)
     questSpacingLabel:SetPoint("TOPLEFT", categorySpacingLabel, "BOTTOMLEFT", 0, -28)
     questSpacingLabel:SetWidth(190)
 
-    local questSpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    local questSpacingSlider = CreateFrame("Slider", nil, controls, "OptionsSliderTemplate")
     questSpacingSlider:SetPoint("LEFT", questSpacingLabel, "RIGHT", 18, 0)
     questSpacingSlider:SetWidth(170)
     questSpacingSlider:SetMinMaxValues(0, 30)
@@ -296,7 +309,7 @@ function BQL:CreateOptions()
     questSpacingSlider:SetObeyStepOnDrag(true)
     self.questSpacingSlider = questSpacingSlider
 
-    local questSpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    local questSpacingValue = CreateLabel(controls, "GameFontHighlightSmall", "")
     questSpacingValue:SetPoint("LEFT", questSpacingSlider, "RIGHT", 12, 0)
     questSpacingValue:SetWidth(55)
     self.questSpacingValue = questSpacingValue
@@ -311,14 +324,14 @@ function BQL:CreateOptions()
     end)
 
     local questObjectiveSpacingLabel = CreateLabel(
-        panel,
+        controls,
         "GameFontHighlight",
         self.text.questObjectiveSpacing
     )
     questObjectiveSpacingLabel:SetPoint("TOPLEFT", questSpacingLabel, "BOTTOMLEFT", 0, -28)
     questObjectiveSpacingLabel:SetWidth(190)
 
-    local questObjectiveSpacingSlider = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+    local questObjectiveSpacingSlider = CreateFrame("Slider", nil, controls, "OptionsSliderTemplate")
     questObjectiveSpacingSlider:SetPoint("LEFT", questObjectiveSpacingLabel, "RIGHT", 18, 0)
     questObjectiveSpacingSlider:SetWidth(170)
     questObjectiveSpacingSlider:SetMinMaxValues(0, 20)
@@ -326,7 +339,7 @@ function BQL:CreateOptions()
     questObjectiveSpacingSlider:SetObeyStepOnDrag(true)
     self.questObjectiveSpacingSlider = questObjectiveSpacingSlider
 
-    local questObjectiveSpacingValue = CreateLabel(panel, "GameFontHighlightSmall", "")
+    local questObjectiveSpacingValue = CreateLabel(controls, "GameFontHighlightSmall", "")
     questObjectiveSpacingValue:SetPoint("LEFT", questObjectiveSpacingSlider, "RIGHT", 12, 0)
     questObjectiveSpacingValue:SetWidth(55)
     self.questObjectiveSpacingValue = questObjectiveSpacingValue

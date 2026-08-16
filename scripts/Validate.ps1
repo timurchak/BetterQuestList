@@ -61,7 +61,14 @@ if ($missingFiles.Count -gt 0) {
     throw "TOC references missing files: $($missingFiles -join ', ')"
 }
 
-$luaFiles = @(Get-ChildItem -LiteralPath $addonRoot -Filter "*.lua" -File -Recurse)
+$luaFiles = @(
+    foreach ($entry in $manifestEntries) {
+        if ([System.IO.Path]::GetExtension($entry.Trim()) -ieq ".lua") {
+            $relativePath = $entry.Trim().Replace([char]92, $directorySeparator).Replace([char]47, $directorySeparator)
+            Get-Item -LiteralPath (Join-Path $addonRoot $relativePath)
+        }
+    }
+)
 if ($luaFiles.Count -eq 0) {
     throw "No Lua source files found under $addonRoot"
 }
@@ -73,4 +80,17 @@ foreach ($luaFile in $luaFiles) {
     }
 }
 
-Write-Host "Validated BetterQuestList $version ($($luaFiles.Count) Lua files, $($manifestEntries.Count) TOC entries)."
+$npxCommand = Get-Command "npx.cmd" -ErrorAction SilentlyContinue
+if (-not $npxCommand) {
+    $npxCommand = Get-Command "npx" -ErrorAction SilentlyContinue
+}
+if (-not $npxCommand) {
+    throw "Lua syntax validation requires Node.js/npx."
+}
+
+& $npxCommand.Source --yes luaparse@0.3.1 --quiet @($luaFiles.FullName)
+if ($LASTEXITCODE -ne 0) {
+    throw "Lua syntax validation failed."
+}
+
+Write-Host "Validated BetterQuestList $version ($($luaFiles.Count) parsed Lua files, $($manifestEntries.Count) TOC entries)."

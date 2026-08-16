@@ -6,6 +6,7 @@ local MIN_ROW_HEIGHT = 18
 local FRAME_LEFT_OVERFLOW = 30
 local FRAME_RIGHT_OVERFLOW = 6
 local FRAME_BOTTOM_PADDING = 6
+local DATA_REFRESH_DELAY = 0.05
 local QUEST_TEXT_LEFT = FRAME_LEFT_OVERFLOW + 20
 local OBJECTIVE_TEXT_LEFT = QUEST_TEXT_LEFT + 14
 
@@ -464,6 +465,12 @@ local function CreateRow(state)
     row.poiButton = CreateFrame("Button", nil, row, "ObjectiveTrackerPOIButtonTemplate")
     row.poiButton:Hide()
 
+    row.itemButton = CreateFrame("Button", nil, row, "QuestObjectiveItemButtonTemplate")
+    row.itemButton:Hide()
+
+    row.findGroupButton = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
+    row.findGroupButton:Hide()
+
     row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     row.text:SetJustifyH("LEFT")
     row.text:SetJustifyV("TOP")
@@ -503,6 +510,42 @@ local function CreateRow(state)
     row.progress.label:SetPoint("CENTER", 0, 0)
     row.progress:Hide()
 
+    row.timer = CreateFrame("Frame", nil, row)
+    row.timer.label = row.timer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    row.timer.label:SetPoint("LEFT", 0, 0)
+    row.timer.bar = CreateFrame("StatusBar", nil, row.timer, "BackdropTemplate")
+    row.timer.bar:SetPoint("LEFT", row.timer.label, "RIGHT", 6, 0)
+    row.timer.bar:SetPoint("RIGHT", row.timer, "RIGHT", -4, 0)
+    row.timer.bar:SetHeight(10)
+    row.timer.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    row.timer.bar:SetStatusBarColor(0.26, 0.42, 1)
+    row.timer.bar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+    row.timer.bar:SetBackdropColor(0.04, 0.07, 0.18, 0.95)
+    row.timer:SetScript("OnUpdate", function(self)
+        local duration = self.duration
+        local startTime = self.startTime
+        if not duration or not startTime then
+            return
+        end
+        local remaining = math.max(0, duration - (GetTime() - startTime))
+        self.bar:SetValue(remaining)
+        self.label:SetText(SecondsToClock(remaining))
+        local percentageLeft = duration > 0 and (remaining / duration) or 0
+        if percentageLeft > 0.66 then
+            self.label:SetTextColor(1, 1, 1)
+        elseif percentageLeft > 0.33 then
+            local blue = (percentageLeft - 0.33) / 0.33
+            self.label:SetTextColor(1, 1, blue)
+        else
+            self.label:SetTextColor(1, percentageLeft / 0.33, 0)
+        end
+        if remaining <= 0 and not self.expired then
+            self.expired = true
+            state.addon:RequestCustomRefresh(true)
+        end
+    end)
+    row.timer:Hide()
+
     row:SetScript("OnEnter", function(self)
         if self.questID or (self.entry and self.entry.kind) then
             self.highlight:Show()
@@ -518,6 +561,9 @@ local function CreateRow(state)
                 true
             )
             GameTooltip:AddLine(state.addon.text.questUntrackHint, 0.8, 0.8, 0.8, true)
+            if self.questID and IsInGroup() and GameTooltip.SetQuestPartyProgress then
+                GameTooltip:SetQuestPartyProgress(self.questID)
+            end
             GameTooltip:Show()
         end
     end)
@@ -533,6 +579,18 @@ local function CreateRow(state)
         end
 
         if entry and TryInsertTrackingLink(entry) then
+            return
+        end
+
+
+        if entry and entry.kind == "content"
+            and IsModifiedClick("DRESSUP")
+            and Enum
+            and Enum.ContentTrackingType
+            and entry.trackingType == Enum.ContentTrackingType.Appearance
+            and DressUpVisual
+        then
+            DressUpVisual(entry.trackingID)
             return
         end
 
@@ -553,6 +611,25 @@ local function CreateRow(state)
 
         if entry and entry.kind then
             HandleTrackingEntryLeftClick(state, entry)
+            return
+        end
+
+
+        if entry and entry.isAutoQuestPopup then
+            if entry.popupType == "OFFER" and ShowQuestOffer then
+                ShowQuestOffer(questID)
+            elseif ShowQuestComplete then
+                ShowQuestComplete(questID)
+            end
+            if RemoveAutoQuestPopUp then
+                RemoveAutoQuestPopUp(questID)
+            end
+            state.addon:RequestCustomRefresh(true)
+            return
+        end
+
+        if entry and entry.isAutoComplete and entry.readyForTurnIn and ShowQuestComplete then
+            ShowQuestComplete(questID)
             return
         end
 
@@ -580,17 +657,26 @@ local function AcquireRow(state)
     if row.poiButton.Reset then
         row.poiButton:Reset()
     end
+    row.itemButton:Hide()
+    row.itemButton:ClearAllPoints()
+    row.findGroupButton:Hide()
+    row.findGroupButton:ClearAllPoints()
     row.categoryBG:ClearAllPoints()
     row.cardBG:ClearAllPoints()
     row.cardStage:ClearAllPoints()
     row.cardName:ClearAllPoints()
     row.progress:ClearAllPoints()
+    row.timer:ClearAllPoints()
     row.icon:Hide()
     row.categoryBG:Hide()
     row.cardBG:Hide()
     row.cardStage:Hide()
     row.cardName:Hide()
     row.progress:Hide()
+    row.timer:Hide()
+    row.timer.duration = nil
+    row.timer.startTime = nil
+    row.timer.expired = nil
     row.text:Show()
     row.highlight:Hide()
     row.questID = nil
@@ -761,6 +847,13 @@ local function HasNativeScenarioContents(state)
         return false
     end
 
+    if type(module.IsDisplayable) == "function" then
+        local ok, displayable = pcall(module.IsDisplayable, module)
+        if ok and not IsSecret(displayable) and not displayable then
+            return false
+        end
+    end
+
     if type(module.HasContents) == "function" then
         local ok, hasContents = pcall(module.HasContents, module)
         if ok and not IsSecret(hasContents) then
@@ -777,6 +870,43 @@ local function HasNativeScenarioContents(state)
         and GetSafeNumber(height, 0) > 1
 end
 
+local function RequestNativeScenarioStageWidgetLayout(state)
+    if state.nativeScenarioStageLayoutScheduled then
+        return
+    end
+
+    local module = GetNativeScenarioModule(state)
+    local stageBlock = module and module.StageBlock
+    local widgetContainer = stageBlock and stageBlock.WidgetContainer
+    if not widgetContainer
+        or not widgetContainer.widgetSetID
+        or type(widgetContainer.UpdateWidgetLayout) ~= "function"
+    then
+        return
+    end
+
+    state.nativeScenarioStageLayoutScheduled = true
+    C_Timer.After(0, function()
+        state.nativeScenarioStageLayoutScheduled = false
+        if not state.nativeScenarioAttached
+            or state.nativeScenarioModule ~= module
+            or state.nativeScenarioRow == nil
+            or module:GetParent() ~= state.nativeScenarioRow
+            or stageBlock.WidgetContainer ~= widgetContainer
+        then
+            return
+        end
+
+        -- Scenario step widget sets use a right-anchored ResizeLayoutFrame.
+        -- On first registration it can retain its initial 1 px width when the
+        -- whole native module is reparented later in the same frame. Re-running
+        -- only the widget container layout after the move resolves its extents;
+        -- unlike ScenarioObjectiveTracker:Update(), this does not read auras or
+        -- other protected scenario data.
+        pcall(widgetContainer.UpdateWidgetLayout, widgetContainer)
+    end)
+end
+
 local function AnchorNativeScenarioModule(state, row)
     local module = GetNativeScenarioModule(state)
     if not row or not CanMoveNativeScenario(module) then
@@ -789,6 +919,7 @@ local function AnchorNativeScenarioModule(state, row)
         module:ClearAllPoints()
         module:SetPoint("TOPLEFT", row, "TOPLEFT", FRAME_LEFT_OVERFLOW + leftMargin, 0)
         module:SetFrameLevel(row:GetFrameLevel() + 1)
+        module:Show()
     end)
     if not ok then
         return false
@@ -796,6 +927,7 @@ local function AnchorNativeScenarioModule(state, row)
 
     state.nativeScenarioAttached = true
     state.nativeScenarioRow = row
+    RequestNativeScenarioStageWidgetLayout(state)
     return true
 end
 
@@ -864,13 +996,30 @@ local function AddQuestTitleRow(state, quest)
     local isInteractive = quest.questID ~= nil or quest.kind ~= nil
     row:EnableMouse(isInteractive and not state.editModeActive)
     ApplySelectedFont(state.addon, row.text, "ObjectiveTrackerLineFont")
-    if quest.readyForTurnIn then
+    if quest.isFailed then
+        row.text:SetTextColor(1, 0.25, 0.25)
+    elseif quest.readyForTurnIn then
         row.text:SetTextColor(0.3, 1, 0.3)
     else
         row.text:SetTextColor(1, 1, 1)
     end
     row.text:SetPoint("TOPLEFT", row, "TOPLEFT", QUEST_TEXT_LEFT, -2)
-    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - QUEST_TEXT_LEFT - 5, 1))
+    local rightInset = 5
+    if quest.showsItem and quest.questLogIndex and row.itemButton.SetUp then
+        row.itemButton:SetUp(quest.questLogIndex)
+        row.itemButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, 2)
+        row.itemButton:EnableMouse(not state.editModeActive)
+        row.itemButton:Show()
+        rightInset = rightInset + 32
+    end
+    if quest.canCreateGroup and row.findGroupButton.SetUp then
+        row.findGroupButton:SetUp(quest.questID)
+        row.findGroupButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", -rightInset, 4)
+        row.findGroupButton:EnableMouse(not state.editModeActive)
+        row.findGroupButton:Show()
+        rightInset = rightInset + 32
+    end
+    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - QUEST_TEXT_LEFT - rightInset, 1))
     row.text:SetMaxLines(0)
     row.text:SetHeight(0)
     row.text:SetText(quest.title)
@@ -881,7 +1030,35 @@ local function AddQuestTitleRow(state, quest)
     row.category = quest.category
     row.canUntrack = quest.questID ~= nil and CanUntrackCategory(quest.category)
 
-    if quest.questID and POIButtonUtil and POIButtonUtil.Style then
+    if quest.kind == "content"
+        and quest.trackingType
+        and quest.trackingID
+        and POIButtonUtil
+        and POIButtonUtil.Style
+        and row.poiButton.SetTrackable
+    then
+        row.poiButton:SetTrackable(quest.trackingType, quest.trackingID)
+        row.poiButton:SetStyle(POIButtonUtil.Style.ContentTracking)
+        if row.poiButton.UpdateSelected then
+            row.poiButton:UpdateSelected()
+        end
+        row.poiButton:UpdateButtonStyle()
+        row.poiButton:SetPoint("TOPRIGHT", row.text, "TOPLEFT", -7, 5)
+        row.poiButton:EnableMouse(not state.editModeActive)
+        row.poiButton:Show()
+    end
+
+    local showQuestPOI = quest.category == "WorldQuestObjectiveTracker"
+        or quest.category == "BonusObjectiveTracker"
+        or type(GetCVarBool) ~= "function"
+        or GetCVarBool("questPOI")
+    if quest.questID and showQuestPOI and C_QuestLog and C_QuestLog.IsQuestCalling then
+        local ok, calling = pcall(C_QuestLog.IsQuestCalling, quest.questID)
+        if ok and not IsSecret(calling) and calling then
+            showQuestPOI = false
+        end
+    end
+    if quest.questID and showQuestPOI and POIButtonUtil and POIButtonUtil.Style then
         local style
         if quest.category == "WorldQuestObjectiveTracker" then
             style = POIButtonUtil.Style.WorldQuest
@@ -913,6 +1090,25 @@ local function AddQuestTitleRow(state, quest)
 
     local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
     PlaceRow(state, row, math.max(MIN_ROW_HEIGHT + 2, textHeight + 6))
+end
+
+
+local function AddTimerRow(state, quest, duration, startTime)
+    if type(duration) ~= "number" or type(startTime) ~= "number" then
+        return
+    end
+    local row = AcquireRow(state)
+    row:EnableMouse(false)
+    row.text:Hide()
+    row.timer:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -2)
+    row.timer:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+    row.timer:SetHeight(18)
+    row.timer.duration = duration
+    row.timer.startTime = startTime
+    row.timer.bar:SetMinMaxValues(0, duration)
+    row.timer:Show()
+    row.questID = quest and quest.questID or nil
+    PlaceRow(state, row, 20)
 end
 
 local function AddObjectiveRow(state, quest, objective)
@@ -963,15 +1159,16 @@ local function AddObjectiveRow(state, quest, objective)
     PlaceRow(state, row, rowHeight)
 end
 
+local function GetLogicalScrollRange(state)
+    local viewportHeight = math.max(GetSafeNumber(state.scrollFrame:GetHeight(), 1), 1)
+    return math.max(0, state.contentHeight + FRAME_BOTTOM_PADDING - viewportHeight)
+end
+
 local function UpdateScroll(state, previousScroll)
     local viewportHeight = math.max(state.scrollFrame:GetHeight(), 1)
     state.content:SetHeight(math.max(state.contentHeight + FRAME_BOTTOM_PADDING, viewportHeight))
     state.scrollFrame:UpdateScrollChildRect()
-
-    local maximum = state.scrollFrame:GetVerticalScrollRange()
-    if IsSecret(maximum) then
-        return
-    end
+    local maximum = GetLogicalScrollRange(state)
     state.scrollFrame:SetVerticalScroll(math.max(0, math.min(previousScroll, maximum)))
 end
 
@@ -1097,9 +1294,10 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(state.scenarioWidgetUsed),
         DebugValue(state.nativeScenarioUsed)
     )
-    lines[#lines + 1] = ("scroll=%s range=%s"):format(
+    lines[#lines + 1] = ("scroll=%s rawRange=%s logicalRange=%s"):format(
         DebugValue(state.scrollFrame:GetVerticalScroll()),
-        DebugValue(state.scrollFrame:GetVerticalScrollRange())
+        DebugValue(state.scrollFrame:GetVerticalScrollRange()),
+        DebugValue(GetLogicalScrollRange(state))
     )
     if state.snapshot and state.snapshot.categories then
         for _, category in ipairs(self:ReconcileOrder()) do
@@ -1139,8 +1337,25 @@ function BQL:CollectCustomDebugInfo()
     DescribeDebugRegion(lines, "NativeScenarioRow", state.nativeScenarioRow)
     DescribeDebugRegion(lines, "NativeScenarioModule", nativeScenario)
     DescribeDebugRegion(lines, "NativeScenarioContents", nativeScenario and nativeScenario.ContentsFrame)
+    local nativeStageBlock = nativeScenario and nativeScenario.StageBlock
+    local nativeStageWidgets = nativeStageBlock and nativeStageBlock.WidgetContainer
+    DescribeDebugRegion(lines, "NativeScenarioStageBlock", nativeStageBlock)
+    DescribeDebugRegion(lines, "NativeScenarioStageWidgets", nativeStageWidgets)
+    lines[#lines + 1] = ("nativeStageWidgets widgetSetID=%s direction=%s widgetCount=%s layoutScheduled=%s"):format(
+        DebugValue(nativeStageWidgets and nativeStageWidgets.widgetSetID),
+        DebugValue(nativeStageWidgets and nativeStageWidgets.widgetSetLayoutDirection),
+        DebugValue(nativeStageWidgets
+            and nativeStageWidgets.GetNumWidgetsShowing
+            and nativeStageWidgets:GetNumWidgetsShowing()),
+        DebugValue(state.nativeScenarioStageLayoutScheduled)
+    )
+    if nativeStageWidgets and nativeStageWidgets.widgetFrames then
+        for widgetID, widget in pairs(nativeStageWidgets.widgetFrames) do
+            DescribeDebugRegion(lines, ("NativeStageWidget[%s]"):format(DebugValue(widgetID)), widget)
+        end
+    end
     DescribeDebugRegion(lines, "ScenarioRow", state.scenarioWidgetRow)
-    DescribeDebugRegion(lines, "WidgetContainer", state.scenarioWidgetContainer)
+    DescribeDebugRegion(lines, "FallbackScenarioWidgetContainer", state.scenarioWidgetContainer)
     DescribeDebugRegion(lines, "ObjectiveWidgetContainer", state.objectiveWidgetContainer)
 
     local container = state.scenarioWidgetContainer
@@ -1284,7 +1499,16 @@ function BQL:RenderCustomTracker()
                             end
                             for _, objective in ipairs(quest.objectives or {}) do
                                 AddObjectiveRow(state, quest, objective)
+                                if objective.timerDuration and objective.timerStartTime then
+                                    AddTimerRow(
+                                        state,
+                                        quest,
+                                        objective.timerDuration,
+                                        objective.timerStartTime
+                                    )
+                                end
                             end
+                            AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
                             visibleQuestCount = visibleQuestCount + 1
                         end
                     end
@@ -1343,7 +1567,7 @@ function BQL:RequestCustomRefresh(readData)
     end
 
     state.refreshScheduled = true
-    C_Timer.After(0, function()
+    C_Timer.After(state.refreshNeedsData and DATA_REFRESH_DELAY or 0, function()
         if not self.customState then
             return
         end
@@ -1356,6 +1580,9 @@ end
 
 function BQL:SetScrollingEnabled(enabled)
     self.db.scrollEnabled = enabled and true or false
+    if not self.db.scrollEnabled and self.customState then
+        self.customState.scrollFrame:SetVerticalScroll(0)
+    end
     return true
 end
 
@@ -1446,6 +1673,7 @@ function BQL:InitializeCustomTracker()
         end
     end
 
+    self.customAchievementTimers = self.customAchievementTimers or {}
     self.customState = {
         addon = self,
         blizzardTracker = blizzardTracker,
@@ -1486,8 +1714,8 @@ function BQL:InitializeCustomTracker()
         end
 
         local current = scroll:GetVerticalScroll()
-        local maximum = scroll:GetVerticalScrollRange()
-        if IsSecret(current) or IsSecret(maximum) then
+        local maximum = GetLogicalScrollRange(self.customState)
+        if IsSecret(current) then
             return
         end
         local target = current - (delta * self.db.scrollStep)
@@ -1576,16 +1804,30 @@ function BQL:InitializeCustomTracker()
         "TRACKED_RECIPE_UPDATE",
         "BAG_UPDATE_DELAYED",
         "ITEM_DATA_LOAD_RESULT",
+        "QUEST_AUTOCOMPLETE",
     }
     for _, eventName in ipairs(eventNames) do
         events:RegisterEvent(eventName)
     end
-    events:SetScript("OnEvent", function(_, eventName)
+    events:SetScript("OnEvent", function(_, eventName, ...)
         if (eventName == "PLAYER_ENTERING_WORLD" or eventName == "ZONE_CHANGED_NEW_AREA")
             and C_NeighborhoodInitiative
             and C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo
         then
             C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo()
+        end
+        if eventName == "TRACKED_ACHIEVEMENT_UPDATE" then
+            local achievementID, _, elapsed, duration = ...
+            if type(achievementID) == "number"
+                and type(elapsed) == "number"
+                and type(duration) == "number"
+                and elapsed < duration
+            then
+                self.customAchievementTimers[achievementID] = {
+                    duration = duration,
+                    startTime = GetTime() - elapsed,
+                }
+            end
         end
         self:RequestCustomRefresh(true)
     end)

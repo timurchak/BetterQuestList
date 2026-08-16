@@ -128,45 +128,66 @@ local function ReadObjectives(addon, questID, previousQuest)
     for index = 1, objectiveCount do
         local previousObjective = previousQuest and previousQuest.objectives and previousQuest.objectives[index]
         local objectiveInfo, infoAvailable = ReadField(objectiveTable, index)
-        local text, textAvailable = infoAvailable and ReadField(objectiveInfo, "text") or nil, false
-        if infoAvailable then
-            text, textAvailable = ReadField(objectiveInfo, "text")
-        end
-
-        if textAvailable and type(text) == "string" and text ~= "" then
-            local finished = false
-            local finishedValue, finishedAvailable = ReadField(objectiveInfo, "finished")
-            if finishedAvailable and type(finishedValue) == "boolean" then
-                finished = finishedValue
-            elseif not finishedAvailable then
+        if not infoAvailable then
+            restricted = true
+            if previousObjective then
+                objectives[#objectives + 1] = previousObjective
+            end
+        else
+            local text, textAvailable = ReadField(objectiveInfo, "text")
+            if not textAvailable or type(text) ~= "string" or text == "" then
                 restricted = true
+                text = previousObjective and previousObjective.text or nil
             end
 
-            local objectiveType, typeAvailable = ReadField(objectiveInfo, "type")
-            if not typeAvailable then
-                objectiveType = previousObjective and previousObjective.type or nil
-                restricted = true
-            end
-
-            local progress
-            if objectiveType == "progressbar" then
-                local progressValue, progressAvailable = SafeCall(_G.GetQuestProgressBarPercent, questID)
-                if progressAvailable and type(progressValue) == "number" then
-                    progress = math.max(0, math.min(progressValue, 100))
+            if type(text) == "string" and text ~= "" then
+                local finished
+                local finishedValue, finishedAvailable = ReadField(objectiveInfo, "finished")
+                if finishedAvailable and type(finishedValue) == "boolean" then
+                    finished = finishedValue
                 else
-                    progress = previousObjective and previousObjective.progress or nil
+                    finished = previousObjective and previousObjective.finished or false
                     restricted = true
                 end
-            end
 
-            objectives[#objectives + 1] = {
-                text = text,
-                finished = finished,
-                type = objectiveType,
-                progress = progress,
-            }
-        elseif not textAvailable then
-            restricted = true
+                local objectiveType, typeAvailable = ReadField(objectiveInfo, "type")
+                if not typeAvailable then
+                    objectiveType = previousObjective and previousObjective.type or nil
+                    restricted = true
+                end
+
+                local progress = previousObjective and previousObjective.progress or nil
+                local progressText = previousObjective and previousObjective.progressText or nil
+                if objectiveType == "progressbar" then
+                    local progressValue, progressAvailable = SafeCall(_G.GetQuestProgressBarPercent, questID)
+                    if progressAvailable and type(progressValue) == "number" then
+                        progress = math.max(0, math.min(progressValue, 100))
+                        progressText = nil
+                    else
+                        restricted = true
+                    end
+                else
+                    progress = nil
+                    progressText = nil
+                end
+
+                objectives[#objectives + 1] = {
+                    text = text,
+                    finished = finished,
+                    type = objectiveType,
+                    progress = progress,
+                    progressText = progressText,
+                }
+            end
+        end
+    end
+
+    -- During combat the client may expose only a readable prefix of a secret
+    -- objective array. Keep the remaining last-known rows until the API becomes
+    -- readable again instead of making progress visibly disappear.
+    if restricted and previousQuest and previousQuest.objectives then
+        for index = objectiveCount + 1, #previousQuest.objectives do
+            objectives[#objectives + 1] = previousQuest.objectives[index]
         end
     end
 
@@ -202,12 +223,143 @@ local function BuildQuest(addon, questID, category, previousQuest)
         restricted = true
     end
 
+    local questLogIndex, indexAvailable = SafeCall(
+        C_QuestLog and C_QuestLog.GetLogIndexForQuestID,
+        questID
+    )
+    if not indexAvailable or type(questLogIndex) ~= "number" or questLogIndex <= 0 then
+        questLogIndex = previousQuest and previousQuest.questLogIndex or nil
+    end
+
+    local isFailed, failedAvailable = SafeCall(C_QuestLog and C_QuestLog.IsFailed, questID)
+    if not failedAvailable then
+        isFailed = previousQuest and previousQuest.isFailed or false
+    end
+
+    local isComplete, completeAvailable = SafeCall(C_QuestLog and C_QuestLog.IsComplete, questID)
+    if not completeAvailable then
+        isComplete = readyForTurnIn and true or false
+    end
+
+    local questCacheEntry
+    local isAutoComplete = previousQuest and previousQuest.isAutoComplete or false
+    if QuestCache and type(QuestCache.Get) == "function" then
+        local cacheAvailable
+        questCacheEntry, cacheAvailable = SafeCall(QuestCache.Get, QuestCache, questID)
+        local autoComplete, autoCompleteAvailable
+        if cacheAvailable then
+            autoComplete, autoCompleteAvailable = ReadField(questCacheEntry, "isAutoComplete")
+        end
+        if autoCompleteAvailable then
+            isAutoComplete = autoComplete and true or false
+        end
+    end
+
+    local canCreateGroup = false
+    if QuestUtil and QuestUtil.CanCreateQuestGroup then
+        local value, available = SafeCall(QuestUtil.CanCreateQuestGroup, questID)
+        canCreateGroup = available and value and true or false
+    end
+
+    local showsItem = false
+    if questLogIndex and QuestUtil and QuestUtil.QuestShowsItemByIndex then
+        local value, available = SafeCall(
+            QuestUtil.QuestShowsItemByIndex,
+            questLogIndex,
+            isComplete and true or false
+        )
+        showsItem = available and value and true or false
+    end
+
+
+    if isComplete then
+        if isAutoComplete then
+            objectives = {
+                {
+                    text = _G.QUEST_WATCH_QUEST_COMPLETE or addon.text.questComplete,
+                    finished = true,
+                },
+                {
+                    text = _G.QUEST_WATCH_CLICK_TO_COMPLETE or addon.text.questComplete,
+                    finished = true,
+                },
+            }
+        elseif questLogIndex and type(_G.GetQuestLogCompletionText) == "function" then
+            local completionText, completionAvailable = SafeCall(
+                _G.GetQuestLogCompletionText,
+                questLogIndex
+            )
+            if completionAvailable
+                and type(completionText) == "string"
+                and completionText ~= ""
+            then
+                objectives = { { text = completionText, finished = true } }
+            end
+        end
+    else
+        local superTrackedID, superTrackedAvailable = SafeCall(
+            C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID
+        )
+        if superTrackedAvailable
+            and superTrackedID == questID
+            and C_QuestLog
+            and C_QuestLog.GetNextWaypointText
+        then
+            local waypoint, waypointAvailable = SafeCall(C_QuestLog.GetNextWaypointText, questID)
+            if waypointAvailable and type(waypoint) == "string" and waypoint ~= "" then
+                objectives[#objectives + 1] = {
+                    text = (_G.WAYPOINT_OBJECTIVE_FORMAT_OPTIONAL or "%s"):format(waypoint),
+                    finished = false,
+                }
+            end
+        end
+
+        local requiredMoney, moneyAvailable = ReadField(questCacheEntry, "requiredMoney")
+        local playerMoney, playerMoneyAvailable = SafeCall(_G.GetMoney)
+        if moneyAvailable
+            and playerMoneyAvailable
+            and type(requiredMoney) == "number"
+            and type(playerMoney) == "number"
+            and requiredMoney > playerMoney
+            and type(_G.GetMoneyString) == "function"
+        then
+            objectives[#objectives + 1] = {
+                text = GetMoneyString(playerMoney) .. " / " .. GetMoneyString(requiredMoney),
+                finished = false,
+            }
+        end
+    end
+
+    local timerDuration
+    local timerStartTime
+    if C_QuestLog and C_QuestLog.GetTimeAllowed then
+        local ok, totalTime, elapsedTime = pcall(C_QuestLog.GetTimeAllowed, questID)
+        if ok
+            and not IsSecret(totalTime)
+            and not IsSecret(elapsedTime)
+            and type(totalTime) == "number"
+            and type(elapsedTime) == "number"
+            and elapsedTime < totalTime
+        then
+            timerDuration = totalTime
+            timerStartTime = GetTime() - elapsedTime
+        end
+    end
+
     return {
         questID = questID,
         category = category,
         title = title,
         objectives = objectives,
         readyForTurnIn = readyForTurnIn and true or false,
+        isComplete = isComplete and true or false,
+        questLogIndex = questLogIndex,
+        isFailed = isFailed and true or false,
+        isAutoComplete = isAutoComplete,
+        canCreateGroup = canCreateGroup,
+        showsItem = showsItem,
+        timerDuration = timerDuration,
+        timerStartTime = timerStartTime,
     }, restricted
 end
 
@@ -436,7 +588,7 @@ local function ReadScenario(addon, previousCategory)
     }, restricted
 end
 
-local function ReadAchievements(previousCategory)
+local function ReadAchievements(addon, previousCategory)
     local contentType = Enum
         and Enum.ContentTrackingType
         and Enum.ContentTrackingType.Achievement
@@ -480,8 +632,8 @@ local function ReadAchievements(previousCategory)
             if countAvailable and type(criteriaCount) == "number" and criteriaCount > 0 then
                 local incompleteCount = 0
                 for criteriaIndex = 1, criteriaCount do
-                    local criteriaOK, criteriaText, _, criteriaCompleted, quantity, totalQuantity,
-                        _, _, _, quantityText, _, eligible = pcall(
+                    local criteriaOK, criteriaText, criteriaType, criteriaCompleted, quantity, totalQuantity,
+                        _, flags, assetID, quantityText, _, eligible, duration, elapsed = pcall(
                             _G.GetAchievementCriteriaInfo,
                             achievementID,
                             criteriaIndex
@@ -493,11 +645,40 @@ local function ReadAchievements(previousCategory)
                         or IsSecret(totalQuantity)
                         or IsSecret(quantityText)
                         or IsSecret(eligible)
+                        or IsSecret(duration)
+                        or IsSecret(elapsed)
                     then
                         achievementRestricted = true
                     elseif not criteriaCompleted and type(criteriaText) == "string" and criteriaText ~= "" then
                         incompleteCount = incompleteCount + 1
                         if #objectives < 5 then
+                            if type(description) == "string"
+                                and description ~= ""
+                                and bit
+                                and bit.band
+                                and type(flags) == "number"
+                                and type(_G.EVALUATION_TREE_FLAG_PROGRESS_BAR) == "number"
+                                and bit.band(flags, _G.EVALUATION_TREE_FLAG_PROGRESS_BAR)
+                                    == _G.EVALUATION_TREE_FLAG_PROGRESS_BAR
+                                and type(quantityText) == "string"
+                                and quantityText ~= ""
+                            then
+                                if string.find(string.lower(quantityText), "interface\\moneyframe") then
+                                    criteriaText = quantityText .. "\n" .. description
+                                else
+                                    criteriaText = string.gsub(quantityText, " / ", "/")
+                                        .. " "
+                                        .. description
+                                end
+                            end
+                            if criteriaType == _G.CRITERIA_TYPE_ACHIEVEMENT
+                                and type(assetID) == "number"
+                            then
+                                local nestedOK, _, nestedName = pcall(_G.GetAchievementInfo, assetID)
+                                if nestedOK and not IsSecret(nestedName) and type(nestedName) == "string" then
+                                    criteriaText = nestedName
+                                end
+                            end
                             local progress
                             local progressText
                             if type(quantity) == "number"
@@ -515,6 +696,16 @@ local function ReadAchievements(previousCategory)
                                 failed = eligible == false,
                                 progress = progress,
                                 progressText = progressText,
+                                timerDuration = type(duration) == "number"
+                                    and type(elapsed) == "number"
+                                    and elapsed < duration
+                                    and duration
+                                    or nil,
+                                timerStartTime = type(duration) == "number"
+                                    and type(elapsed) == "number"
+                                    and elapsed < duration
+                                    and (GetTime() - elapsed)
+                                    or nil,
                             }
                         end
                     end
@@ -523,7 +714,12 @@ local function ReadAchievements(previousCategory)
                     objectives[#objectives + 1] = { text = "...", finished = false }
                 end
             elseif countAvailable and type(description) == "string" and description ~= "" then
-                objectives[1] = { text = description, finished = false }
+                local failed = false
+                if type(_G.IsAchievementEligible) == "function" then
+                    local eligible, eligibleAvailable = SafeCall(_G.IsAchievementEligible, achievementID)
+                    failed = eligibleAvailable and not eligible or false
+                end
+                objectives[1] = { text = description, finished = false, failed = failed }
             else
                 achievementRestricted = true
             end
@@ -531,6 +727,12 @@ local function ReadAchievements(previousCategory)
             if achievementRestricted and #objectives == 0 and previous then
                 entries[#entries + 1] = previous
             else
+                local timer = addon.customAchievementTimers
+                    and addon.customAchievementTimers[achievementID]
+                if timer and #objectives > 0 and not objectives[1].timerDuration then
+                    objectives[1].timerDuration = timer.duration
+                    objectives[1].timerStartTime = timer.startTime
+                end
                 entries[#entries + 1] = {
                     kind = "achievement",
                     trackingID = achievementID,
@@ -729,6 +931,81 @@ local function ReadAdventureTracking(previousCategory)
                         elseif previous then
                             objectives = previous.objectives or {}
                             restricted = true
+                        end
+
+                        local targetTypes = Enum and Enum.ContentTrackingTargetType
+                        local isNavigableTarget = targetTypes
+                            and (targetType == targetTypes.Vendor
+                                or targetType == targetTypes.JournalEncounter)
+                        if isNavigableTarget
+                            and objectiveAvailable
+                            and C_ContentTracking.GetBestMapForTrackable
+                        then
+                            local mapOK, mapResult, uiMapID = pcall(
+                                C_ContentTracking.GetBestMapForTrackable,
+                                trackingType,
+                                trackingID,
+                                true
+                            )
+                            local results = Enum and Enum.ContentTrackingResult
+                            if mapOK
+                                and not IsSecret(mapResult)
+                                and results
+                                and mapResult ~= results.DataPending
+                            then
+                                if mapResult ~= results.Success or not uiMapID then
+                                    objectives[#objectives + 1] = {
+                                        text = _G.CONTENT_TRACKING_LOCATION_UNAVAILABLE
+                                            or "Location unavailable",
+                                        finished = false,
+                                    }
+                                elseif C_ContentTracking.IsNavigable then
+                                    local navOK, navResult, navigable = pcall(
+                                        C_ContentTracking.IsNavigable,
+                                        trackingType,
+                                        trackingID
+                                    )
+                                    if navOK
+                                        and results
+                                        and (navResult == results.Failure
+                                            or (navResult == results.Success and not navigable))
+                                    then
+                                        objectives[#objectives + 1] = {
+                                            text = _G.CONTENT_TRACKING_ROUTE_UNAVAILABLE
+                                                or "Route unavailable",
+                                            finished = false,
+                                        }
+                                    elseif navOK
+                                        and C_SuperTrack
+                                        and C_SuperTrack.GetSuperTrackedContent
+                                    then
+                                        local superOK, superType, superID = pcall(
+                                            C_SuperTrack.GetSuperTrackedContent
+                                        )
+                                        if superOK
+                                            and superType == trackingType
+                                            and superID == trackingID
+                                            and C_ContentTracking.GetWaypointText
+                                        then
+                                            local waypoint, waypointAvailable = SafeCall(
+                                                C_ContentTracking.GetWaypointText,
+                                                trackingType,
+                                                trackingID
+                                            )
+                                            if waypointAvailable
+                                                and type(waypoint) == "string"
+                                                and waypoint ~= ""
+                                            then
+                                                objectives[#objectives + 1] = {
+                                                    text = (_G.OPTIONAL_QUEST_OBJECTIVE_DESCRIPTION or "%s")
+                                                        :format(waypoint),
+                                                    finished = false,
+                                                }
+                                            end
+                                        end
+                                    end
+                                end
+                            end
                         end
                         entries[#entries + 1] = {
                             kind = "content",
@@ -1010,6 +1287,59 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
         end
     end
 
+    if type(_G.GetNumAutoQuestPopUps) == "function"
+        and type(_G.GetAutoQuestPopUp) == "function"
+    then
+        local popupCount, popupCountAvailable = SafeCall(_G.GetNumAutoQuestPopUps)
+        if popupCountAvailable and type(popupCount) == "number" then
+            for index = 1, popupCount do
+                local ok, questID, popupType = pcall(_G.GetAutoQuestPopUp, index)
+                if ok
+                    and not IsSecret(questID)
+                    and not IsSecret(popupType)
+                    and type(questID) == "number"
+                    and not seen[questID]
+                then
+                    local previousQuest = previousByID[questID]
+                    local category, categoryRestricted = GetQuestCategory(
+                        questID,
+                        previousQuest and previousQuest.category or CATEGORY_QUESTS
+                    )
+                    local quest, questRestricted = BuildQuest(self, questID, category, previousQuest)
+                    snapshot.restricted = snapshot.restricted
+                        or categoryRestricted
+                        or questRestricted
+                    if quest and categories[category] then
+                        quest.isAutoQuestPopup = true
+                        quest.popupType = popupType
+                        if popupType == "COMPLETE" then
+                            quest.objectives = {
+                                {
+                                    text = _G.QUEST_WATCH_POPUP_CLICK_TO_COMPLETE
+                                        or _G.QUEST_WATCH_CLICK_TO_COMPLETE
+                                        or self.text.questComplete,
+                                    finished = true,
+                                },
+                            }
+                        else
+                            quest.objectives = {
+                                {
+                                    text = _G.QUEST_WATCH_POPUP_CLICK_TO_VIEW
+                                        or _G.QUEST_WATCH_POPUP_QUEST_DISCOVERED
+                                        or "Click to view",
+                                    finished = false,
+                                },
+                            }
+                        end
+                        quest.category = category
+                        categories[category][#categories[category] + 1] = quest
+                        seen[questID] = true
+                    end
+                end
+            end
+        end
+    end
+
     local scenarioCategory, scenarioRestricted = ReadScenario(
         self,
         previousSnapshot and previousSnapshot.categories and previousSnapshot.categories[CATEGORY_SCENARIO]
@@ -1033,6 +1363,7 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
     snapshot.restricted = snapshot.restricted or adventureRestricted
 
     local achievementCategory, achievementRestricted = ReadAchievements(
+        self,
         previousSnapshot
             and previousSnapshot.categories
             and previousSnapshot.categories[CATEGORY_ACHIEVEMENTS]

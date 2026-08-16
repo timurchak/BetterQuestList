@@ -2,21 +2,26 @@
 
 <img src="Media/BetterQuestListIcon.png" alt="BetterQuestList" width="96">
 
-BetterQuestList is a lightweight custom quest tracker. The experimental `dev` renderer provides:
+BetterQuestList is a lightweight, configurable replacement for the visual part of Blizzard's Objective Tracker. It renders one compact, scrollable list while leaving Blizzard's tracker active in the background to process protected game data.
 
-- configurable category ordering;
-- tracked achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and native event widgets;
-- mouse-wheel scrolling for long tracked-objective lists;
-- selectable tracker fonts and background presets, including a fully transparent background;
-- optional Blizzard-style textured category headers;
-- an Edit Mode companion panel for live appearance, category-spacing, and quest-spacing adjustments;
-- Blizzard Objective Tracker fonts and native quest POI buttons for campaign, legendary, important, recurring, world, and other quest types;
-- Blizzard-style right-click quest menus plus locale-aware, copyable Wowhead URLs;
-- a compact presentation inspired by Blizzard's quest tracker;
-- in-memory snapshots that preserve the last readable quest progress when WoW protects live data.
+The current `dev` version focuses on predictable behavior and familiar WoW interactions:
+
+- one persistent, user-defined order for all supported categories;
+- mouse-wheel scrolling when the tracked content is taller than the configured tracker area;
+- native Blizzard scenario presentation for dungeons, Delves, events, and other scenario types, including their own stages, timers, icons, counters, and visual styles;
+- custom quest rows with native quest POI buttons and multiline objectives;
+- tracked world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets;
+- Blizzard-style right-click menus with tracking actions, quest details, map access, sharing, abandoning, and locale-aware Wowhead links;
+- selectable fonts, background presets, optional Blizzard-style category textures, and configurable spacing and offsets;
+- appearance controls in both the standard addon options and WoW Edit Mode;
+- in-memory snapshots that preserve the last readable quest progress while WoW temporarily marks live values as secret.
+
+## Design
+
+BetterQuestList does not reorder or manually update Blizzard's Objective Tracker modules. Regular quests and tracked content are rendered by the addon, while the already-rendered native Scenario module is hosted inside the BetterQuestList scroll area. This preserves Blizzard's context-specific scenario UI instead of approximating every dungeon, Delve, or event with a generic card.
 
 > [!IMPORTANT]
-> The custom renderer does not call Blizzard Objective Tracker layout methods or mutate its module order. The stock tracker remains active but visually hidden, so Blizzard can continue processing protected Scenario and aura data on its own secure path.
+> The stock tracker remains active but visually hidden. BetterQuestList never calls its layout/update methods and does not mutate its module order, allowing Blizzard to continue processing protected Scenario and aura data on its own path.
 
 ## Localization
 
@@ -30,7 +35,7 @@ Runtime strings and fallback module labels are defined in `Locales.lua`.
 
 ## Project structure
 
-- `BetterQuestList.toc`, `Locales.lua`, `CustomData.lua`, `Core.lua`, `CustomTracker.lua`, and `Options.lua` are the addon runtime sources;
+- `BetterQuestList.toc`, `Locales.lua`, `CustomData.lua`, `Core.lua`, `CustomTracker.lua`, `EditMode.lua`, and `Options.lua` are the addon runtime sources;
 - `Media/BetterQuestListIcon.tga` is the in-game icon;
 - `Media/BetterQuestListIcon.png` is the repository and project-page logo;
 - `scripts/Validate.ps1` validates the TOC and source structure;
@@ -68,7 +73,7 @@ Run `/reload` in WoW after deployment.
 
 ## Diagnostics
 
-Run `/bql debug` to open a copyable diagnostic report containing tracker, scroll area, scenario widget, and Delve header geometry. Press `Ctrl+A`, then `Ctrl+C` in the report window and include the copied text with a bug report.
+Run `/bql debug` to open a copyable diagnostic report containing tracker, scroll area, native Scenario module, scenario widgets, and Delve header geometry. Press `Ctrl+A`, then `Ctrl+C` in the report window and include the copied text with a bug report.
 
 ## Manual CurseForge upload
 
