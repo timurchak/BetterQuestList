@@ -524,6 +524,26 @@ local function ReadScenario(addon, previousCategory)
         end
     end
 
+    local title = stageName
+    if type(title) ~= "string" or title == "" then
+        title = scenarioName
+    end
+    if type(title) ~= "string" or title == "" then
+        return CopyQuestArray(previousCategory), true
+    end
+
+    local previousScenario = previousCategory and previousCategory[1]
+    local sameScenario
+    if type(scenarioID) == "number" and type(previousScenario and previousScenario.scenarioID) == "number" then
+        sameScenario = scenarioID == previousScenario.scenarioID
+    else
+        sameScenario = previousScenario and previousScenario.title == scenarioName
+    end
+    local sameStage = sameScenario
+        and previousScenario.currentStage == currentStage
+        and previousScenario.stageName == title
+
+    local completedCriteria = addon.customState and addon.customState.completedScenarioCriteria or {}
     local objectives = {}
     if type(weightedProgress) == "number" and type(stageDescription) == "string" and stageDescription ~= "" then
         objectives[1] = {
@@ -534,8 +554,12 @@ local function ReadScenario(addon, previousCategory)
         }
     else
         for criteriaIndex = 1, numCriteria do
-            local previousScenario = previousCategory and previousCategory[1]
-            local previousObjective = previousScenario
+            local previousIdentityObjective = sameScenario
+                and previousScenario.currentStage == currentStage
+                and previousScenario.objectives
+                and previousScenario.objectives[criteriaIndex]
+            local previousObjective = sameStage
+                and previousScenario
                 and previousScenario.objectives
                 and previousScenario.objectives[criteriaIndex]
             local criteriaInfo, criteriaAvailable = SafeCall(
@@ -546,13 +570,57 @@ local function ReadScenario(addon, previousCategory)
                 local description, descriptionAvailable = ReadField(criteriaInfo, "description")
                 local completed, completedAvailable = ReadField(criteriaInfo, "completed")
                 local isWeighted, weightedAvailable = ReadField(criteriaInfo, "isWeightedProgress")
+                local isFormatted, formattedAvailable = ReadField(criteriaInfo, "isFormatted")
+                local criteriaID, criteriaIDAvailable = ReadField(criteriaInfo, "criteriaID")
                 local quantity, quantityAvailable = ReadField(criteriaInfo, "quantity")
                 local totalQuantity, totalQuantityAvailable = ReadField(criteriaInfo, "totalQuantity")
                 if descriptionAvailable and type(description) == "string" and description ~= "" then
+                    if not weightedAvailable and previousObjective then
+                        isWeighted = previousObjective.isWeightedProgress and true or false
+                        weightedAvailable = true
+                        restricted = true
+                    end
+                    if not formattedAvailable and previousObjective then
+                        isFormatted = previousObjective.isFormatted and true or false
+                        formattedAvailable = true
+                        restricted = true
+                    end
+                    if not criteriaIDAvailable and previousIdentityObjective then
+                        criteriaID = previousIdentityObjective.criteriaID
+                        criteriaIDAvailable = type(criteriaID) == "number"
+                        restricted = true
+                    end
+                    local completedByEvent = criteriaIDAvailable
+                        and type(criteriaID) == "number"
+                        and completedCriteria[criteriaID]
+                        and true
+                        or false
+                    local finished = completedByEvent or (completedAvailable and completed and true or false)
+                    if not completedAvailable and not completedByEvent and previousObjective then
+                        finished = previousObjective.finished and true or false
+                        restricted = true
+                    end
+
+                    if not quantityAvailable and previousObjective then
+                        quantity = previousObjective.quantity
+                        quantityAvailable = type(quantity) == "number"
+                        restricted = true
+                    end
+                    if not totalQuantityAvailable and previousObjective then
+                        totalQuantity = previousObjective.totalQuantity
+                        totalQuantityAvailable = type(totalQuantity) == "number"
+                        restricted = true
+                    end
+                    if completedByEvent and totalQuantityAvailable and type(totalQuantity) == "number" then
+                        quantity = totalQuantity
+                        quantityAvailable = true
+                    end
+
                     local progress
                     local progressText
                     local objectiveType
-                    if weightedAvailable and isWeighted then
+                    local objectiveText = description
+                    if weightedAvailable and isWeighted and not finished then
                         objectiveType = "progressbar"
                         if quantityAvailable and type(quantity) == "number" then
                             progress = math.max(0, math.min(quantity, 100))
@@ -560,49 +628,90 @@ local function ReadScenario(addon, previousCategory)
                             progress = previousObjective and previousObjective.progress or nil
                             restricted = true
                         end
-                    elseif quantityAvailable
+                    elseif weightedAvailable
+                        and not isWeighted
+                        and quantityAvailable
                         and totalQuantityAvailable
                         and type(quantity) == "number"
                         and type(totalQuantity) == "number"
                         and totalQuantity > 1
                     then
-                        progress = math.max(0, math.min((quantity / totalQuantity) * 100, 100))
-                        progressText = ("%d/%d"):format(quantity, totalQuantity)
-                        objectiveType = "progressbar"
-                    elseif previousObjective and previousObjective.progress then
+                        if not (formattedAvailable and isFormatted) then
+                            objectiveText = ("%d/%d %s"):format(quantity, totalQuantity, description)
+                        end
+                    elseif weightedAvailable
+                        and isWeighted
+                        and not finished
+                        and previousObjective
+                        and previousObjective.progress
+                    then
                         progress = previousObjective.progress
                         progressText = previousObjective.progressText
                         objectiveType = previousObjective.type
                         restricted = true
                     end
 
-                    local finished = completedAvailable and completed and true or false
-                    if not completedAvailable and previousObjective then
-                        finished = previousObjective.finished and true or false
+                    if not weightedAvailable or not formattedAvailable or not criteriaIDAvailable then
                         restricted = true
                     end
                     objectives[#objectives + 1] = {
-                        text = description,
+                        text = objectiveText,
+                        description = description,
                         finished = finished,
                         type = objectiveType,
                         progress = progress,
                         progressText = progressText,
+                        criteriaID = criteriaIDAvailable and criteriaID or nil,
+                        quantity = quantityAvailable and quantity or nil,
+                        totalQuantity = totalQuantityAvailable and totalQuantity or nil,
+                        isWeightedProgress = weightedAvailable and isWeighted and true or false,
+                        isFormatted = formattedAvailable and isFormatted and true or false,
                     }
                 else
                     restricted = true
                 end
             else
                 restricted = true
+                local fallbackSource = previousObjective
+                if not fallbackSource
+                    and previousIdentityObjective
+                    and previousIdentityObjective.criteriaID
+                    and completedCriteria[previousIdentityObjective.criteriaID]
+                then
+                    fallbackSource = previousIdentityObjective
+                end
+                if fallbackSource then
+                    local fallbackObjective = {}
+                    for key, value in pairs(fallbackSource) do
+                        fallbackObjective[key] = value
+                    end
+                    if fallbackObjective.criteriaID
+                        and completedCriteria[fallbackObjective.criteriaID]
+                    then
+                        fallbackObjective.finished = true
+                        if type(fallbackObjective.totalQuantity) == "number" then
+                            fallbackObjective.quantity = fallbackObjective.totalQuantity
+                            if not fallbackObjective.isWeightedProgress
+                                and not fallbackObjective.isFormatted
+                                and type(fallbackObjective.description) == "string"
+                            then
+                                fallbackObjective.text = ("%d/%d %s"):format(
+                                    fallbackObjective.totalQuantity,
+                                    fallbackObjective.totalQuantity,
+                                    fallbackObjective.description
+                                )
+                            end
+                        end
+                        if fallbackObjective.isWeightedProgress then
+                            fallbackObjective.progress = nil
+                            fallbackObjective.progressText = nil
+                            fallbackObjective.type = nil
+                        end
+                    end
+                    objectives[#objectives + 1] = fallbackObjective
+                end
             end
         end
-    end
-
-    local title = stageName
-    if type(title) ~= "string" or title == "" then
-        title = scenarioName
-    end
-    if type(title) ~= "string" or title == "" then
-        return CopyQuestArray(previousCategory), true
     end
 
     local scenarioTitle = scenarioName

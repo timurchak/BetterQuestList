@@ -560,6 +560,18 @@ local function CreateRow(state)
     row.progress.label:SetPoint("CENTER", 0, 0)
     row.progress:Hide()
 
+    local nativeProgressCreated, nativeProgress = pcall(
+        CreateFrame,
+        "Frame",
+        nil,
+        row,
+        "ScenarioProgressBarTemplate"
+    )
+    if nativeProgressCreated and nativeProgress and nativeProgress.Bar then
+        row.scenarioProgress = nativeProgress
+        row.scenarioProgress:Hide()
+    end
+
     row.timer = CreateFrame("Frame", nil, row)
     row.timer.label = row.timer:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     row.timer.label:SetPoint("LEFT", 0, 0)
@@ -718,6 +730,10 @@ local function AcquireRow(state)
     row.cardStage:ClearAllPoints()
     row.cardName:ClearAllPoints()
     row.progress:ClearAllPoints()
+    if row.scenarioProgress then
+        row.scenarioProgress:ClearAllPoints()
+        row.scenarioProgress:Hide()
+    end
     row.timer:ClearAllPoints()
     row.icon:Hide()
     row.categoryBG:Hide()
@@ -1214,18 +1230,38 @@ local function AddObjectiveRow(state, quest, objective)
     local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
     local rowHeight = math.max(MIN_ROW_HEIGHT, textHeight + 5)
     if type(objective.progress) == "number" then
-        ApplySelectedFont(state.addon, row.progress.label, "ObjectiveTrackerLineFont")
-        row.progress:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -(textHeight + 5))
-        row.progress:SetPoint("RIGHT", row, "RIGHT", -12, 0)
-        row.progress:SetHeight(15)
-        row.progress:SetValue(math.max(0, math.min(objective.progress, 100)))
-        if objective.progressText then
-            row.progress.label:SetText(objective.progressText)
+        local progress = math.max(0, math.min(objective.progress, 100))
+        if quest.isScenario and row.scenarioProgress and row.scenarioProgress.Bar then
+            local scenarioProgress = row.scenarioProgress
+            local bar = scenarioProgress.Bar
+            scenarioProgress:SetPoint(
+                "TOPLEFT",
+                row,
+                "TOPLEFT",
+                OBJECTIVE_TEXT_LEFT - 10,
+                -(textHeight + 3)
+            )
+            bar:SetValue(progress)
+            if bar.Label then
+                ApplySelectedFont(state.addon, bar.Label, "GameFontHighlightMedium")
+                bar.Label:SetFormattedText(PERCENTAGE_STRING, progress)
+            end
+            scenarioProgress:Show()
+            rowHeight = rowHeight + math.max(GetSafeNumber(scenarioProgress:GetHeight(), 38), 38)
         else
-            row.progress.label:SetFormattedText(PERCENTAGE_STRING, objective.progress)
+            ApplySelectedFont(state.addon, row.progress.label, "ObjectiveTrackerLineFont")
+            row.progress:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -(textHeight + 5))
+            row.progress:SetPoint("RIGHT", row, "RIGHT", -12, 0)
+            row.progress:SetHeight(15)
+            row.progress:SetValue(progress)
+            if objective.progressText then
+                row.progress.label:SetText(objective.progressText)
+            else
+                row.progress.label:SetFormattedText(PERCENTAGE_STRING, progress)
+            end
+            row.progress:Show()
+            rowHeight = rowHeight + 20
         end
-        row.progress:Show()
-        rowHeight = rowHeight + 20
     end
     PlaceRow(state, row, rowHeight)
 end
@@ -1395,6 +1431,18 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(scenario and scenario.stageName),
         DebugValue(scenario and scenario.widgetSetID)
     )
+    for objectiveIndex, objective in ipairs(scenario and scenario.objectives or {}) do
+        lines[#lines + 1] = ("scenarioObjective[%s] criteriaID=%s finished=%s weighted=%s quantity=%s total=%s progress=%s text=%s"):format(
+            DebugValue(objectiveIndex),
+            DebugValue(objective.criteriaID),
+            DebugValue(objective.finished),
+            DebugValue(objective.isWeightedProgress),
+            DebugValue(objective.quantity),
+            DebugValue(objective.totalQuantity),
+            DebugValue(objective.progress),
+            DebugValue(objective.text)
+        )
+    end
 
     local nativeScenario = GetNativeScenarioModule(state)
     lines[#lines + 1] = ("nativeScenario available=%s hasContents=%s protected=%s attached=%s"):format(
@@ -1671,6 +1719,9 @@ function BQL:ApplyCustomAppearance(refresh)
         ApplySelectedFont(self, row.cardStage, "Game18Font")
         ApplySelectedFont(self, row.cardName, "GameFontNormal")
         ApplySelectedFont(self, row.progress.label, "ObjectiveTrackerLineFont")
+        if row.scenarioProgress and row.scenarioProgress.Bar and row.scenarioProgress.Bar.Label then
+            ApplySelectedFont(self, row.scenarioProgress.Bar.Label, "GameFontHighlightMedium")
+        end
         ApplySelectedFont(self, row.timer.label, "ObjectiveTrackerLineFont")
     end
 
@@ -1750,6 +1801,7 @@ function BQL:InitializeCustomTracker()
         scenarioWidgetContainer = scenarioWidgetContainer,
         objectiveWidgetContainer = objectiveWidgetContainer,
         nativeScenarioModule = nativeScenarioModule,
+        completedScenarioCriteria = {},
         rows = {},
         usedRows = 0,
         contentHeight = 0,
@@ -1860,6 +1912,15 @@ function BQL:InitializeCustomTracker()
         if eventName == "QUEST_ACCEPTED" then
             local questID = ...
             self:AutoTrackAcceptedQuest(questID)
+        end
+
+        if eventName == "CRITERIA_COMPLETE" then
+            local criteriaID = ...
+            if type(criteriaID) == "number" and not IsSecret(criteriaID) then
+                state.completedScenarioCriteria[criteriaID] = true
+            end
+        elseif eventName == "PLAYER_ENTERING_WORLD" or eventName == "ZONE_CHANGED_NEW_AREA" then
+            wipe(state.completedScenarioCriteria)
         end
 
         if eventName == "UPDATE_UI_WIDGET" or eventName == "UPDATE_ALL_UI_WIDGETS" then
