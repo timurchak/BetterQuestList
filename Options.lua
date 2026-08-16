@@ -74,7 +74,7 @@ function BQL:CreateOptions()
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, 1050)
+    controls:SetSize(620, 1150)
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -184,8 +184,45 @@ function BQL:CreateOptions()
     fontDropdown:SetPoint("LEFT", fontLabel, "RIGHT", 6, -2)
     self.fontDropdown = fontDropdown
 
+    local fontOutlineLabel = CreateLabel(controls, "GameFontHighlight", self.text.fontOutline)
+    fontOutlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -24)
+    fontOutlineLabel:SetWidth(190)
+
+    local fontOutlineChoices = {
+        { value = "default", label = self.text.fontOutlineDefault },
+        { value = "none", label = self.text.fontOutlineNone },
+        { value = "outline", label = self.text.fontOutlineNormal },
+        { value = "thick", label = self.text.fontOutlineThick },
+    }
+    local fontOutlineDropdown = CreateChoiceDropdown(controls, fontOutlineChoices, function()
+        return self.db.fontOutline
+    end, function(value)
+        self.db.fontOutline = value
+        self:ApplyCustomAppearance()
+    end)
+    fontOutlineDropdown:SetPoint("LEFT", fontOutlineLabel, "RIGHT", 6, -2)
+    self.fontOutlineDropdown = fontOutlineDropdown
+
+    local fontShadowLabel = CreateLabel(controls, "GameFontHighlight", self.text.fontShadow)
+    fontShadowLabel:SetPoint("TOPLEFT", fontOutlineLabel, "BOTTOMLEFT", 0, -24)
+    fontShadowLabel:SetWidth(190)
+
+    local fontShadowChoices = {
+        { value = "default", label = self.text.fontShadowDefault },
+        { value = "enabled", label = self.text.fontShadowEnabled },
+        { value = "disabled", label = self.text.fontShadowDisabled },
+    }
+    local fontShadowDropdown = CreateChoiceDropdown(controls, fontShadowChoices, function()
+        return self.db.fontShadow
+    end, function(value)
+        self.db.fontShadow = value
+        self:ApplyCustomAppearance()
+    end)
+    fontShadowDropdown:SetPoint("LEFT", fontShadowLabel, "RIGHT", 6, -2)
+    self.fontShadowDropdown = fontShadowDropdown
+
     local backgroundLabel = CreateLabel(controls, "GameFontHighlight", self.text.background)
-    backgroundLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -24)
+    backgroundLabel:SetPoint("TOPLEFT", fontShadowLabel, "BOTTOMLEFT", 0, -24)
     backgroundLabel:SetWidth(190)
 
     local backgroundChoices = {
@@ -397,6 +434,8 @@ function BQL:RefreshOptions()
     self.scrollCheck:SetChecked(self.db.scrollEnabled)
     self.scrollCheck:SetEnabled(true)
     self.fontDropdown:Refresh()
+    self.fontOutlineDropdown:Refresh()
+    self.fontShadowDropdown:Refresh()
     self.backgroundDropdown:Refresh()
     self.categoryStyleDropdown:Refresh()
     self.categoryOffsetSlider:SetValue(self.db.categoryOffset)

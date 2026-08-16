@@ -1,7 +1,7 @@
 local _, BQL = ...
 
 local PANEL_WIDTH = 540
-local PANEL_HEIGHT = 410
+local PANEL_HEIGHT = 490
 local LFG_EYE_TEXTURE = "Interface\\LFGFrame\\LFG-Eye"
 local LFG_EYE_FRAME_OPEN = 0
 local LFG_EYE_FRAME_CLOSED = 4
@@ -336,6 +336,17 @@ function BQL:InitializeEditModeIntegration()
         { value = "subtle", label = self.text.backgroundSubtle },
         { value = "dark", label = self.text.backgroundDark },
     }
+    local fontOutlineChoices = {
+        { value = "default", label = self.text.fontOutlineDefault },
+        { value = "none", label = self.text.fontOutlineNone },
+        { value = "outline", label = self.text.fontOutlineNormal },
+        { value = "thick", label = self.text.fontOutlineThick },
+    }
+    local fontShadowChoices = {
+        { value = "default", label = self.text.fontShadowDefault },
+        { value = "enabled", label = self.text.fontShadowEnabled },
+        { value = "disabled", label = self.text.fontShadowDisabled },
+    }
     local categoryStyleChoices = {
         { value = "blizzard", label = self.text.categoryStyleBlizzard },
         { value = "plain", label = self.text.categoryStylePlain },
@@ -346,6 +357,18 @@ function BQL:InitializeEditModeIntegration()
             return self.db.font
         end, function(value)
             self.db.font = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateDropdownRow(panel, self.text.fontOutline, fontOutlineChoices, function()
+            return self.db.fontOutline
+        end, function(value)
+            self.db.fontOutline = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateDropdownRow(panel, self.text.fontShadow, fontShadowChoices, function()
+            return self.db.fontShadow
+        end, function(value)
+            self.db.fontShadow = value
             self:ApplyCustomAppearance()
         end),
         CreateDropdownRow(panel, self.text.background, backgroundChoices, function()

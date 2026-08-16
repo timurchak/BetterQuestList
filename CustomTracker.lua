@@ -48,10 +48,25 @@ local BACKGROUND_STYLES = {
     },
 }
 
+local FONT_OUTLINE_FLAGS = {
+    none = "",
+    outline = "OUTLINE",
+    thick = "THICKOUTLINE",
+}
+
 local function ApplySelectedFont(addon, fontString, baseFontObject)
     local baseFont = type(baseFontObject) == "string" and _G[baseFontObject] or baseFontObject
+    local baseShadowRed, baseShadowGreen, baseShadowBlue, baseShadowAlpha
+    local baseShadowX, baseShadowY
     if baseFont then
         fontString:SetFontObject(baseFont)
+        if baseFont.GetShadowColor then
+            baseShadowRed, baseShadowGreen, baseShadowBlue, baseShadowAlpha =
+                baseFont:GetShadowColor()
+        end
+        if baseFont.GetShadowOffset then
+            baseShadowX, baseShadowY = baseFont:GetShadowOffset()
+        end
 
         -- SetFontObject does not reliably discard a previous explicit SetFont call.
         -- Reapply the resolved Blizzard font so "Default" always restores the live
@@ -64,15 +79,29 @@ local function ApplySelectedFont(addon, fontString, baseFontObject)
         fontString:SetFontObject(baseFontObject)
     end
 
+    local baseFile, fontHeight, baseFlags = fontString:GetFont()
     local fontFiles = GetLocale() == "ruRU" and CYRILLIC_FONT_FILES or WESTERN_FONT_FILES
-    local fontFile = fontFiles[addon.db.font]
-    if not fontFile then
-        return
+    local fontFile = fontFiles[addon.db.font] or baseFile
+    local outlineFlags = FONT_OUTLINE_FLAGS[addon.db.fontOutline]
+    local fontFlags = outlineFlags ~= nil and outlineFlags or baseFlags
+    if fontFile and fontHeight then
+        fontString:SetFont(fontFile, fontHeight, fontFlags)
     end
 
-    local _, fontHeight, fontFlags = fontString:GetFont()
-    if fontHeight then
-        fontString:SetFont(fontFile, fontHeight, fontFlags)
+    if addon.db.fontShadow == "enabled" then
+        fontString:SetShadowColor(0, 0, 0, 0.95)
+        fontString:SetShadowOffset(1, -1)
+    elseif addon.db.fontShadow == "disabled" then
+        fontString:SetShadowColor(0, 0, 0, 0)
+        fontString:SetShadowOffset(0, 0)
+    elseif type(baseShadowRed) == "number" then
+        fontString:SetShadowColor(
+            baseShadowRed,
+            baseShadowGreen,
+            baseShadowBlue,
+            baseShadowAlpha
+        )
+        fontString:SetShadowOffset(baseShadowX or 0, baseShadowY or 0)
     end
 end
 
@@ -1100,6 +1129,7 @@ local function AddTimerRow(state, quest, duration, startTime)
     local row = AcquireRow(state)
     row:EnableMouse(false)
     row.text:Hide()
+    ApplySelectedFont(state.addon, row.timer.label, "ObjectiveTrackerLineFont")
     row.timer:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -2)
     row.timer:SetPoint("RIGHT", row, "RIGHT", -12, 0)
     row.timer:SetHeight(18)
@@ -1293,6 +1323,12 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(state.usedRows),
         DebugValue(state.scenarioWidgetUsed),
         DebugValue(state.nativeScenarioUsed)
+    )
+    lines[#lines + 1] = ("appearance font=%s outline=%s shadow=%s background=%s"):format(
+        DebugValue(self.db.font),
+        DebugValue(self.db.fontOutline),
+        DebugValue(self.db.fontShadow),
+        DebugValue(self.db.background)
     )
     lines[#lines + 1] = ("scroll=%s rawRange=%s logicalRange=%s"):format(
         DebugValue(state.scrollFrame:GetVerticalScroll()),
@@ -1602,6 +1638,7 @@ function BQL:ApplyCustomAppearance(refresh)
         ApplySelectedFont(self, row.cardStage, "Game18Font")
         ApplySelectedFont(self, row.cardName, "GameFontNormal")
         ApplySelectedFont(self, row.progress.label, "ObjectiveTrackerLineFont")
+        ApplySelectedFont(self, row.timer.label, "ObjectiveTrackerLineFont")
     end
 
     if refresh ~= false then

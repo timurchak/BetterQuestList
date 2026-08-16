@@ -12,7 +12,7 @@ The current version focuses on predictable behavior and familiar WoW interaction
 - custom quest rows with native quest POI buttons and multiline objectives;
 - tracked world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets;
 - Blizzard-style right-click menus with tracking actions, quest details, map access, sharing, abandoning, and locale-aware Wowhead links;
-- selectable fonts, background presets, optional Blizzard-style category textures, and configurable spacing and offsets;
+- selectable fonts, outlines, shadows, background presets, optional Blizzard-style category textures, and configurable spacing and offsets;
 - appearance controls in both the standard addon options and WoW Edit Mode;
 - in-memory snapshots that preserve the last readable quest progress while WoW temporarily marks live values as secret.
 

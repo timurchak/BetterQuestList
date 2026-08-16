@@ -21,6 +21,8 @@ BQL.DEFAULT_ORDER = {
 }
 
 BQL.FONT_CHOICES = { "default", "chat", "quest", "system" }
+BQL.FONT_OUTLINE_CHOICES = { "default", "none", "outline", "thick" }
+BQL.FONT_SHADOW_CHOICES = { "default", "enabled", "disabled" }
 BQL.BACKGROUND_CHOICES = { "none", "subtle", "dark" }
 BQL.CATEGORY_STYLE_CHOICES = { "blizzard", "plain" }
 
@@ -290,6 +292,12 @@ function BQL:Initialize()
     if not IsChoiceValid(self.FONT_CHOICES, self.db.font) then
         self.db.font = "default"
     end
+    if not IsChoiceValid(self.FONT_OUTLINE_CHOICES, self.db.fontOutline) then
+        self.db.fontOutline = "default"
+    end
+    if not IsChoiceValid(self.FONT_SHADOW_CHOICES, self.db.fontShadow) then
+        self.db.fontShadow = "default"
+    end
     if not IsChoiceValid(self.BACKGROUND_CHOICES, self.db.background) then
         self.db.background = "subtle"
     end
@@ -297,7 +305,7 @@ function BQL:Initialize()
         self.db.categoryStyle = "blizzard"
     end
     if self.db.appearanceSchemaVersion ~= 1 then
-        if self.db.categoryOffset == nil or self.db.categoryOffset == 2 then
+        if self.db.categoryOffset == nil then
             self.db.categoryOffset = 5
         end
         self.db.appearanceSchemaVersion = 1
@@ -307,14 +315,14 @@ function BQL:Initialize()
     end
     self.db.categoryOffset = math.max(-20, math.min(math.floor(self.db.categoryOffset + 0.5), 20))
     if type(self.db.categoryTextOffset) ~= "number" then
-        self.db.categoryTextOffset = 0
+        self.db.categoryTextOffset = 30
     end
     self.db.categoryTextOffset = math.max(
         -100,
         math.min(math.floor(self.db.categoryTextOffset + 0.5), 100)
     )
     if type(self.db.categorySpacing) ~= "number" then
-        self.db.categorySpacing = 0
+        self.db.categorySpacing = 10
     end
     self.db.categorySpacing = math.max(
         0,
