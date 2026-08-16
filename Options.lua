@@ -74,7 +74,7 @@ function BQL:CreateOptions()
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, 1150)
+    controls:SetSize(620, 1210)
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -162,8 +162,32 @@ function BQL:CreateOptions()
     scrollDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     scrollDescription:SetWordWrap(true)
 
+    local autoTrackCheck = CreateFrame("CheckButton", nil, controls, "UICheckButtonTemplate")
+    autoTrackCheck:SetPoint("TOPLEFT", scrollDescription, "BOTTOMLEFT", -30, -14)
+    autoTrackCheck:SetScript("OnClick", function(button)
+        self:SetAcceptedQuestAutoTrackingEnabled(button:GetChecked() and true or false)
+        button:SetChecked(self:IsAcceptedQuestAutoTrackingEnabled())
+    end)
+    self.autoTrackCheck = autoTrackCheck
+
+    local autoTrackLabel = CreateLabel(
+        controls,
+        "GameFontNormal",
+        self.text.autoTrackAcceptedQuests
+    )
+    autoTrackLabel:SetPoint("LEFT", autoTrackCheck, "RIGHT", 2, 0)
+
+    local autoTrackDescription = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.autoTrackAcceptedQuestsDescription
+    )
+    autoTrackDescription:SetPoint("TOPLEFT", autoTrackCheck, "BOTTOMLEFT", 30, -2)
+    autoTrackDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    autoTrackDescription:SetWordWrap(true)
+
     local appearanceTitle = CreateLabel(controls, "GameFontNormal", self.text.appearance)
-    appearanceTitle:SetPoint("TOPLEFT", scrollDescription, "BOTTOMLEFT", -30, -18)
+    appearanceTitle:SetPoint("TOPLEFT", autoTrackDescription, "BOTTOMLEFT", -30, -18)
 
     local fontLabel = CreateLabel(controls, "GameFontHighlight", self.text.font)
     fontLabel:SetPoint("TOPLEFT", appearanceTitle, "BOTTOMLEFT", 0, -18)
@@ -433,6 +457,8 @@ function BQL:RefreshOptions()
     self.resetButton:SetEnabled(true)
     self.scrollCheck:SetChecked(self.db.scrollEnabled)
     self.scrollCheck:SetEnabled(true)
+    self.autoTrackCheck:SetChecked(self:IsAcceptedQuestAutoTrackingEnabled())
+    self.autoTrackCheck:SetEnabled(C_CVar and type(C_CVar.SetCVar) == "function")
     self.fontDropdown:Refresh()
     self.fontOutlineDropdown:Refresh()
     self.fontShadowDropdown:Refresh()

@@ -8,6 +8,7 @@ The current version focuses on predictable behavior and familiar WoW interaction
 
 - one persistent, user-defined order for all supported categories;
 - mouse-wheel scrolling when the tracked content is taller than the configured tracker area;
+- automatic tracking for newly accepted regular quests through Blizzard's autoQuestWatch setting;
 - native Blizzard scenario presentation for dungeons, Delves, events, and other scenario types, including their own stages, timers, icons, counters, and visual styles;
 - custom quest rows with native quest POI buttons and multiline objectives;
 - tracked world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets;

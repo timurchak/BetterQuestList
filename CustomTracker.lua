@@ -1906,6 +1906,11 @@ function BQL:InitializeCustomTracker()
             return
         end
 
+        if eventName == "QUEST_ACCEPTED" then
+            local questID = ...
+            self:AutoTrackAcceptedQuest(questID)
+        end
+
         if eventName == "UPDATE_UI_WIDGET" or eventName == "UPDATE_ALL_UI_WIDGETS" then
             local widgetContainer = state.scenarioWidgetContainer
             if not widgetContainer or not widgetContainer.widgetSetID then

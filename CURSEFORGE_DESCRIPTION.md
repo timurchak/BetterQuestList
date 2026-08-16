@@ -11,6 +11,7 @@ Unlike full tracker replacements, BetterQuestList does not try to recreate every
 - Arrange tracked-content categories in your preferred order.
 - Keep that order after login, reloads, combat, and tracker updates.
 - Scroll long objective lists with the mouse wheel.
+- Automatically track newly accepted regular quests using Blizzard's standard setting.
 - Display native Blizzard scenario UI for dungeons, Delves, events, and other scenarios.
 - Show multiline quest names and objectives without losing counters at the edge.
 - Retain familiar quest POI icons, quest-item buttons, group finder buttons, timers, auto-complete actions, and party progress tooltips.

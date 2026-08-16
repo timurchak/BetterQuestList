@@ -91,6 +91,71 @@ function BQL:ApplyModuleOrder()
     return true
 end
 
+function BQL:IsAcceptedQuestAutoTrackingEnabled()
+    if not C_CVar or type(C_CVar.GetCVarBool) ~= "function" then
+        return false
+    end
+
+    local ok, enabled = pcall(C_CVar.GetCVarBool, "autoQuestWatch")
+    return ok and enabled and true or false
+end
+
+function BQL:SetAcceptedQuestAutoTrackingEnabled(enabled)
+    if not C_CVar or type(C_CVar.SetCVar) ~= "function" then
+        return false
+    end
+
+    local ok, changed = pcall(C_CVar.SetCVar, "autoQuestWatch", enabled and "1" or "0")
+    return ok and changed ~= false
+end
+
+function BQL:AutoTrackAcceptedQuest(questID)
+    if not self:IsAcceptedQuestAutoTrackingEnabled()
+        or type(questID) ~= "number"
+        or (issecretvalue and issecretvalue(questID))
+        or not C_QuestLog
+    then
+        return false
+    end
+
+    local taskOK, isTask = pcall(C_QuestLog.IsQuestTask, questID)
+    local bountyOK, isBounty = pcall(C_QuestLog.IsQuestBounty, questID)
+    if not taskOK
+        or not bountyOK
+        or (issecretvalue and (issecretvalue(isTask) or issecretvalue(isBounty)))
+        or isTask
+        or isBounty
+    then
+        return false
+    end
+
+    local watchTypeOK, watchType = pcall(C_QuestLog.GetQuestWatchType, questID)
+    if not watchTypeOK or (issecretvalue and issecretvalue(watchType)) then
+        return false
+    end
+    if watchType ~= nil then
+        return true
+    end
+
+    local countOK, watchCount = pcall(C_QuestLog.GetNumQuestWatches)
+    if not countOK
+        or type(watchCount) ~= "number"
+        or (issecretvalue and issecretvalue(watchCount))
+    then
+        return false
+    end
+
+    local maximum = Constants
+        and Constants.QuestWatchConsts
+        and Constants.QuestWatchConsts.MAX_QUEST_WATCHES
+    if type(maximum) == "number" and watchCount >= maximum then
+        return false
+    end
+
+    local addOK, added = pcall(C_QuestLog.AddQuestWatch, questID)
+    return addOK and added and true or false
+end
+
 function BQL:MoveModule(index, delta)
     local order = self:ReconcileOrder()
     local target = index + delta
