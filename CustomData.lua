@@ -368,7 +368,24 @@ local function IsWorldQuest(questID)
     return available and isWorldQuest and true or false, available
 end
 
+local function IsQuestKnownCompleted(questID)
+    local flaggedCompleted, flaggedAvailable = SafeCall(
+        C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted,
+        questID
+    )
+    if flaggedAvailable and flaggedCompleted then
+        return true
+    end
+
+    local isComplete, completeAvailable = SafeCall(C_QuestLog and C_QuestLog.IsComplete, questID)
+    return completeAvailable and isComplete and true or false
+end
+
 local function ShouldDisplayTaskQuest(questID, treatAsTracked)
+    if IsQuestKnownCompleted(questID) then
+        return false, false
+    end
+
     if type(_G.GetTaskInfo) ~= "function" then
         return false, true
     end
@@ -1261,7 +1278,16 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
 
     local function PreserveCategory(category)
         local previous = previousSnapshot and previousSnapshot.categories and previousSnapshot.categories[category]
-        categories[category] = CopyQuestArray(previous)
+        local preserved = {}
+        for _, quest in ipairs(previous or {}) do
+            local discardCompletedTask = (category == CATEGORY_WORLD or category == CATEGORY_BONUS)
+                and quest.questID
+                and IsQuestKnownCompleted(quest.questID)
+            if not discardCompletedTask then
+                preserved[#preserved + 1] = quest
+            end
+        end
+        categories[category] = preserved
         snapshot.restricted = true
         for _, quest in ipairs(categories[category]) do
             if quest.questID then
