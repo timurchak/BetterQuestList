@@ -175,10 +175,32 @@ function BQL:PositionEditModeAppearancePanel()
     local panel = integration.panel
     panel:ClearAllPoints()
     local trackerLeft = state.frame:GetLeft()
+    local trackerRight = state.frame:GetRight()
+    local trackerTop = state.frame:GetTop()
+    if not trackerLeft or not trackerRight or not trackerTop then
+        panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        return
+    end
+
+    -- Anchor to UIParent at the tracker's current screen coordinates. Keeping
+    -- the panel attached directly to the tracker makes the width slider move
+    -- out from under the cursor as the tracker grows to the left.
     if trackerLeft and trackerLeft > PANEL_WIDTH + 24 then
-        panel:SetPoint("TOPRIGHT", state.frame, "TOPLEFT", -12, 0)
+        panel:SetPoint(
+            "TOPRIGHT",
+            UIParent,
+            "BOTTOMLEFT",
+            trackerLeft - 12,
+            trackerTop
+        )
     else
-        panel:SetPoint("TOPLEFT", state.frame, "TOPRIGHT", 12, 0)
+        panel:SetPoint(
+            "TOPLEFT",
+            UIParent,
+            "BOTTOMLEFT",
+            trackerRight + 12,
+            trackerTop
+        )
     end
 end
 

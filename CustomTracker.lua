@@ -184,9 +184,6 @@ function BQL:SetCustomTrackerSize(width, height)
         SetTrackerGeometry(self.customState)
         self:RequestCustomRefresh(false)
     end
-    if self.PositionEditModeAppearancePanel then
-        self:PositionEditModeAppearancePanel()
-    end
 end
 
 local function HideBlizzardTracker(state)
