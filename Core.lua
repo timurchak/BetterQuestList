@@ -20,6 +20,19 @@ BQL.DEFAULT_ORDER = {
     "WorldQuestObjectiveTracker",
 }
 
+BQL.FONT_CHOICES = { "default", "chat", "quest", "system" }
+BQL.BACKGROUND_CHOICES = { "none", "subtle", "dark" }
+BQL.CATEGORY_STYLE_CHOICES = { "blizzard", "plain" }
+
+local function IsChoiceValid(choices, value)
+    for _, choice in ipairs(choices) do
+        if choice == value then
+            return true
+        end
+    end
+    return false
+end
+
 local function CopyArray(source)
     local result = {}
     for index, value in ipairs(source) do
@@ -32,58 +45,12 @@ function BQL:Print(message)
     print(("|T%s:14:14:0:0|t |cff33ff99BetterQuestList:|r %s"):format(self.ICON_PATH, message))
 end
 
-function BQL:GetModuleName(module)
-    if not module then
-        return nil
-    end
-
-    local name = module.GetName and module:GetName()
-    if name and name ~= "" then
-        return name
-    end
-
-    for _, knownName in ipairs(self.DEFAULT_ORDER) do
-        if _G[knownName] == module then
-            return knownName
-        end
-    end
-
-    return nil
-end
-
 function BQL:GetModuleLabel(name)
-    local module = _G[name]
-    local header = module and module.Header
-    local text = header and header.Text and header.Text:GetText()
-    if text and text ~= "" then
-        return text
-    end
     return self.fallbackLabels[name] or name
 end
 
 function BQL:GetAvailableModuleNames()
-    local tracker = _G.ObjectiveTrackerFrame
-    local names = {}
-    local seen = {}
-
-    if tracker and tracker.modules then
-        for _, module in ipairs(tracker.modules) do
-            local name = self:GetModuleName(module)
-            if name and not seen[name] then
-                seen[name] = true
-                names[#names + 1] = name
-            end
-        end
-    end
-
-    for _, name in ipairs(self.DEFAULT_ORDER) do
-        if _G[name] and not seen[name] then
-            seen[name] = true
-            names[#names + 1] = name
-        end
-    end
-
-    return names
+    return CopyArray(self.DEFAULT_ORDER)
 end
 
 function BQL:ReconcileOrder()
@@ -116,8 +83,8 @@ end
 
 function BQL:ApplyModuleOrder()
     self:ReconcileOrder()
-    if self.RefreshTrackerLayout then
-        return self:RefreshTrackerLayout()
+    if self.RequestCustomRefresh then
+        self:RequestCustomRefresh(false)
     end
     return true
 end
@@ -153,18 +120,134 @@ function BQL:OpenOptions()
     self:Print(self.text.optionsUnavailable)
 end
 
+function BQL:ShowDebugWindow(report)
+    local frame = self.debugWindow
+    if not frame then
+        frame = CreateFrame("Frame", "BetterQuestListDebugWindow", UIParent, "BackdropTemplate")
+        frame:SetSize(720, 520)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame:SetClampedToScreen(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+            edgeSize = 24,
+            insets = { left = 6, right = 6, top = 6, bottom = 6 },
+        })
+
+        local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 18, -16)
+        frame.title = title
+
+        local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+        hint:SetTextColor(0.75, 0.75, 0.75)
+        frame.hint = hint
+
+        local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -5, -5)
+
+        local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", 18, -62)
+        scroll:SetPoint("BOTTOMRIGHT", -38, 18)
+
+        local editBox = CreateFrame("EditBox", nil, scroll)
+        editBox:SetMultiLine(true)
+        editBox:SetAutoFocus(false)
+        editBox:SetFontObject("ChatFontNormal")
+        editBox:SetJustifyH("LEFT")
+        editBox:SetJustifyV("TOP")
+        editBox:SetWidth(650)
+        editBox:SetHeight(4000)
+        editBox:SetTextInsets(4, 4, 4, 4)
+        editBox:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            frame:Hide()
+        end)
+        scroll:SetScrollChild(editBox)
+
+        frame.scroll = scroll
+        frame.editBox = editBox
+        self.debugWindow = frame
+    end
+
+    frame.title:SetText(self.text.debugWindowTitle)
+    frame.hint:SetText(self.text.debugCopyHint)
+    frame.editBox:SetText(report or "No diagnostic data available.")
+    frame.editBox:SetCursorPosition(0)
+    frame.editBox:HighlightText()
+    frame:Show()
+    frame.editBox:SetFocus()
+end
+
+function BQL:ShowCopyTextWindow(titleText, hintText, value)
+    local frame = self.copyTextWindow
+    if not frame then
+        frame = CreateFrame("Frame", "BetterQuestListCopyTextWindow", UIParent, "BackdropTemplate")
+        frame:SetSize(560, 145)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame:SetClampedToScreen(true)
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+            edgeSize = 24,
+            insets = { left = 6, right = 6, top = 6, bottom = 6 },
+        })
+
+        local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 18, -18)
+        frame.title = title
+
+        local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -7)
+        hint:SetTextColor(0.75, 0.75, 0.75)
+        frame.hint = hint
+
+        local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -5, -5)
+
+        local editBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+        editBox:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 4, -16)
+        editBox:SetWidth(500)
+        editBox:SetHeight(30)
+        editBox:SetAutoFocus(false)
+        editBox:SetFontObject("ChatFontNormal")
+        editBox:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            frame:Hide()
+        end)
+        editBox:SetScript("OnEditFocusLost", function(self)
+            self:HighlightText(0, 0)
+        end)
+        frame.editBox = editBox
+        self.copyTextWindow = frame
+    end
+
+    frame.title:SetText(titleText or self.text.title)
+    frame.hint:SetText(hintText or "")
+    frame.editBox:SetText(value or "")
+    frame.editBox:SetCursorPosition(0)
+    frame.editBox:HighlightText()
+    frame:Show()
+    frame.editBox:SetFocus()
+end
+
 function BQL:PrintDebugInfo()
-    local state = self.scrollState
-    local auraSecrets = C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() or false
-    self:Print(("version=%s, scrolling=%s, layoutExpanded=%s, pending=%s, viewport=%.1f, content=%.1f, auraSecrets=%s"):format(
-        self.version,
-        tostring(state and state.enabled or false),
-        tostring(state and state.layoutExpanded or false),
-        tostring(state and state.pending or false),
-        state and state.viewportHeight or 0,
-        state and state.contentHeight or 0,
-        tostring(auraSecrets)
-    ))
+    local report = self.CollectCustomDebugInfo and self:CollectCustomDebugInfo()
+        or "BetterQuestList custom tracker is not initialized."
+    self:ShowDebugWindow(report)
+    self:Print(self.text.debugOpened)
 end
 
 local function HandleSlashCommand(input)
@@ -190,23 +273,75 @@ function BQL:Initialize()
     if type(self.db.moduleOrder) ~= "table" then
         self.db.moduleOrder = CopyArray(self.DEFAULT_ORDER)
     end
-    if self.db.schemaVersion ~= 2 then
-        self.db.schemaVersion = 2
+    if self.db.schemaVersion ~= 3 then
+        self.db.schemaVersion = 3
         self.db.scrollEnabled = true
-    elseif self.db.scrollEnabled == nil then
+        self.db.collapsed = false
+    end
+    if self.db.scrollEnabled == nil then
         self.db.scrollEnabled = true
+    end
+    if self.db.collapsed == nil then
+        self.db.collapsed = false
     end
     if type(self.db.scrollStep) ~= "number" then
         self.db.scrollStep = 45
     end
+    if not IsChoiceValid(self.FONT_CHOICES, self.db.font) then
+        self.db.font = "default"
+    end
+    if not IsChoiceValid(self.BACKGROUND_CHOICES, self.db.background) then
+        self.db.background = "subtle"
+    end
+    if not IsChoiceValid(self.CATEGORY_STYLE_CHOICES, self.db.categoryStyle) then
+        self.db.categoryStyle = "blizzard"
+    end
+    if self.db.appearanceSchemaVersion ~= 1 then
+        if self.db.categoryOffset == nil or self.db.categoryOffset == 2 then
+            self.db.categoryOffset = 5
+        end
+        self.db.appearanceSchemaVersion = 1
+    end
+    if type(self.db.categoryOffset) ~= "number" then
+        self.db.categoryOffset = 5
+    end
+    self.db.categoryOffset = math.max(-20, math.min(math.floor(self.db.categoryOffset + 0.5), 20))
+    if type(self.db.categoryTextOffset) ~= "number" then
+        self.db.categoryTextOffset = 0
+    end
+    self.db.categoryTextOffset = math.max(
+        -100,
+        math.min(math.floor(self.db.categoryTextOffset + 0.5), 100)
+    )
+    if type(self.db.categorySpacing) ~= "number" then
+        self.db.categorySpacing = 0
+    end
+    self.db.categorySpacing = math.max(
+        0,
+        math.min(math.floor(self.db.categorySpacing + 0.5), 30)
+    )
+    if type(self.db.questSpacing) ~= "number" then
+        self.db.questSpacing = 0
+    end
+    self.db.questSpacing = math.max(0, math.min(math.floor(self.db.questSpacing + 0.5), 30))
+    if type(self.db.questObjectiveSpacing) ~= "number" then
+        self.db.questObjectiveSpacing = 0
+    end
+    self.db.questObjectiveSpacing = math.max(
+        0,
+        math.min(math.floor(self.db.questObjectiveSpacing + 0.5), 20)
+    )
+
+    self:ReconcileOrder()
 
     SLASH_BETTERQUESTLIST1 = "/bql"
     SLASH_BETTERQUESTLIST2 = "/betterquestlist"
     SlashCmdList.BETTERQUESTLIST = HandleSlashCommand
 
     self:CreateOptions()
-    self:InitializeScrolling()
-    self:Print(self.text.restrictedMode)
+    self:InitializeCustomTracker()
+    self:InitializeEditModeIntegration()
+    self:Print(self.text.customMode)
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -226,8 +361,8 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
                 BQL.kalielsWarningShown = true
                 BQL:Print(BQL.text.kalielsConflict)
             end
-            if BQL.RequestScrollingState then
-                BQL:RequestScrollingState()
+            if BQL.RequestCustomRefresh then
+                BQL:RequestCustomRefresh(true)
             end
         end)
     end

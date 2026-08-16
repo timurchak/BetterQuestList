@@ -2,14 +2,26 @@
 
 <img src="Media/BetterQuestListIcon.png" alt="BetterQuestList" width="96">
 
-BetterQuestList is a lightweight customization layer for Blizzard's Objective Tracker. The project is intended to provide:
+BetterQuestList is a lightweight, configurable replacement for the visual part of Blizzard's Objective Tracker. It renders one compact, scrollable list while leaving Blizzard's tracker active in the background to process protected game data.
 
-- configurable category ordering;
-- mouse-wheel scrolling for long tracked-objective lists;
-- the native Blizzard quest rendering style.
+The current `dev` version focuses on predictable behavior and familiar WoW interactions:
+
+- one persistent, user-defined order for all supported categories;
+- mouse-wheel scrolling when the tracked content is taller than the configured tracker area;
+- native Blizzard scenario presentation for dungeons, Delves, events, and other scenario types, including their own stages, timers, icons, counters, and visual styles;
+- custom quest rows with native quest POI buttons and multiline objectives;
+- tracked world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets;
+- Blizzard-style right-click menus with tracking actions, quest details, map access, sharing, abandoning, and locale-aware Wowhead links;
+- selectable fonts, background presets, optional Blizzard-style category textures, and configurable spacing and offsets;
+- appearance controls in both the standard addon options and WoW Edit Mode;
+- in-memory snapshots that preserve the last readable quest progress while WoW temporarily marks live values as secret.
+
+## Design
+
+BetterQuestList does not reorder or manually update Blizzard's Objective Tracker modules. Regular quests and tracked content are rendered by the addon, while the already-rendered native Scenario module is hosted inside the BetterQuestList scroll area. This preserves Blizzard's context-specific scenario UI instead of approximating every dungeon, Delve, or event with a generic card.
 
 > [!IMPORTANT]
-> WoW 12.1 compatibility mode never replaces Blizzard functions or writes to protected Objective Tracker ordering fields. Scrolling temporarily expands a pending Blizzard layout calculation and restores the native Edit Mode height immediately afterward; category ordering is applied as a visual post-layout step.
+> The stock tracker remains active but visually hidden. BetterQuestList never calls its layout/update methods and does not mutate its module order, allowing Blizzard to continue processing protected Scenario and aura data on its own path.
 
 ## Localization
 
@@ -23,7 +35,7 @@ Runtime strings and fallback module labels are defined in `Locales.lua`.
 
 ## Project structure
 
-- `BetterQuestList.toc`, `Locales.lua`, `Core.lua`, `Scroll.lua`, and `Options.lua` are the addon runtime sources;
+- `BetterQuestList.toc`, `Locales.lua`, `CustomData.lua`, `Core.lua`, `CustomTracker.lua`, `EditMode.lua`, and `Options.lua` are the addon runtime sources;
 - `Media/BetterQuestListIcon.tga` is the in-game icon;
 - `Media/BetterQuestListIcon.png` is the repository and project-page logo;
 - `scripts/Validate.ps1` validates the TOC and source structure;
@@ -59,6 +71,10 @@ Watch runtime files and deploy after every saved change:
 
 Run `/reload` in WoW after deployment.
 
+## Diagnostics
+
+Run `/bql debug` to open a copyable diagnostic report containing tracker, scroll area, native Scenario module, scenario widgets, and Delve header geometry. Press `Ctrl+A`, then `Ctrl+C` in the report window and include the copied text with a bug report.
+
 ## Manual CurseForge upload
 
 Create a local release package:
@@ -74,8 +90,8 @@ Upload the generated `dist/BetterQuestList-<version>.zip` file through the Curse
 Every push to `main` and every pull request validates the addon and builds a test ZIP. A tag matching the TOC version runs `BigWigsMods/packager@v2` and creates a GitHub release:
 
 ```powershell
-git tag v0.1.6
-git push origin v0.1.6
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Update `## Version` in `BetterQuestList.toc` before creating the tag.
