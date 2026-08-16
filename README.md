@@ -4,7 +4,7 @@
 
 BetterQuestList is a lightweight, configurable replacement for the visual part of Blizzard's Objective Tracker. It renders one compact, scrollable list while leaving Blizzard's tracker active in the background to process protected game data.
 
-The current `dev` version focuses on predictable behavior and familiar WoW interactions:
+The current version focuses on predictable behavior and familiar WoW interactions:
 
 - one persistent, user-defined order for all supported categories;
 - mouse-wheel scrolling when the tracked content is taller than the configured tracker area;
@@ -90,8 +90,8 @@ Upload the generated `dist/BetterQuestList-<version>.zip` file through the Curse
 Every push to `main` and every pull request validates the addon and builds a test ZIP. A tag matching the TOC version runs `BigWigsMods/packager@v2` and creates a GitHub release:
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 Update `## Version` in `BetterQuestList.toc` before creating the tag.

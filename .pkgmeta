@@ -12,6 +12,7 @@ ignore:
   - .pkgmeta
   - AGENTS.md
   - README.md
+  - CURSEFORGE_DESCRIPTION.md
   - Media/BetterQuestListIcon.png
   - scripts
   - dist
