@@ -4,6 +4,8 @@ BetterQuestList is a lightweight, configurable replacement for the visual part o
 
 Unlike full tracker replacements, BetterQuestList does not try to recreate every dungeon, Delve, event, or scenario interface. It hosts Blizzard's native Scenario module inside its scrollable list, preserving the correct stages, timers, icons, counters, lives, and context-specific visuals supplied by the game.
 
+> **Work in progress:** BetterQuestList is under active development. Some content types, combat situations, or combinations with other UI addons may still expose bugs or visual conflicts. Feedback, suggestions, compatibility reports, and bug reports are very welcome and directly help shape upcoming releases.
+
 ## Features
 
 - Arrange tracked-content categories in your preferred order.
@@ -46,6 +48,21 @@ BetterQuestList is built for modern World of Warcraft Retail. It deliberately le
 
 The addon is focused: it changes how tracked content is presented, but does not alter quest data, progression, or completion state.
 
+## Roadmap
+
+Planned areas of development include:
+
+- Compatibility and integration with addons that replace or modify the Mythic+ timer.
+- Integration with DPS and combat meters, including Details! and EnhanceQoL.
+- Better interoperability with navigation and waypoint addons, including TomTom.
+- Additional integrations based on community feedback and real-world compatibility reports.
+
+These items are development goals rather than guaranteed release dates or commitments. Priorities may change as the WoW UI and addon APIs evolve.
+
 ## Feedback and bug reports
 
-If something is positioned incorrectly or disappears in a particular dungeon, Delve, event, or combat situation, run `/bql debug`. Copy the report with `Ctrl+A`, then `Ctrl+C`, and attach it to your report along with a short description of what was happening.
+All feedback is appreciated, even if the problem is difficult to reproduce. If something is positioned incorrectly, disappears, behaves differently in combat, or conflicts with another addon, run `/bql debug`. Copy the report with `Ctrl+A`, then `Ctrl+C`, and attach it to your report together with:
+
+- A short description of what happened and what you expected.
+- The dungeon, Delve, event, or other activity where it occurred.
+- The names of other addons that modify the Objective Tracker, Mythic+ timer, combat meter, navigation, waypoints, or nearby UI elements.

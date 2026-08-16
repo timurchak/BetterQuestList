@@ -4,7 +4,7 @@
 ## Notes-ruRU: Лёгкий трекер заданий с постоянным порядком категорий и прокруткой.
 ## Notes-deDE: Eine schlanke Questverfolgung mit fester Kategorienreihenfolge und Scrollen.
 ## Author: Timur
-## Version: 1.1.0
+## Version: 1.1.1
 ## X-Curse-Project-ID: 1653870
 ## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB

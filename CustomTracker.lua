@@ -805,6 +805,21 @@ local function LayoutObjectiveWidgets(widgetContainer, widgets)
     end
 end
 
+local function RefreshScenarioWidgetData(state, widgetContainer)
+    if not state.scenarioWidgetRefreshPending
+        or type(widgetContainer.ProcessAllWidgets) ~= "function"
+    then
+        return
+    end
+
+    local ok = pcall(widgetContainer.ProcessAllWidgets, widgetContainer)
+    state.scenarioWidgetLastRefreshTime = GetTime()
+    state.scenarioWidgetLastRefreshSucceeded = ok
+    if ok then
+        state.scenarioWidgetRefreshPending = false
+    end
+end
+
 local function AddScenarioCard(state, scenario)
     local row = AcquireRow(state)
     row:EnableMouse(false)
@@ -815,6 +830,7 @@ local function AddScenarioCard(state, scenario)
         widgetContainer:ClearAllPoints()
         widgetContainer:SetPoint("TOP", row, "TOP", 0, 0)
         widgetContainer:RegisterForWidgetSet(scenario.widgetSetID, LayoutScenarioWidgets)
+        RefreshScenarioWidgetData(state, widgetContainer)
         widgetContainer:Show()
         widgetContainer:UpdateWidgetLayout()
         state.scenarioWidgetUsed = true
@@ -1401,6 +1417,12 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(container and container.layoutFunc == LayoutScenarioWidgets),
         DebugValue(container and container.GetNumWidgetsShowing and container:GetNumWidgetsShowing())
     )
+    lines[#lines + 1] = ("fallbackWidgetRefresh pending=%s reason=%s time=%s succeeded=%s"):format(
+        DebugValue(state.scenarioWidgetRefreshPending),
+        DebugValue(state.scenarioWidgetRefreshReason),
+        DebugValue(state.scenarioWidgetLastRefreshTime),
+        DebugValue(state.scenarioWidgetLastRefreshSucceeded)
+    )
 
     if container and container.widgetFrames then
         local widgetIDs = {}
@@ -1842,16 +1864,54 @@ function BQL:InitializeCustomTracker()
         "BAG_UPDATE_DELAYED",
         "ITEM_DATA_LOAD_RESULT",
         "QUEST_AUTOCOMPLETE",
+        "UPDATE_ALL_UI_WIDGETS",
+        "UPDATE_UI_WIDGET",
     }
     for _, eventName in ipairs(eventNames) do
         events:RegisterEvent(eventName)
     end
     events:SetScript("OnEvent", function(_, eventName, ...)
+        local state = self.customState
+        if not state then
+            return
+        end
+
+        if eventName == "UPDATE_UI_WIDGET" or eventName == "UPDATE_ALL_UI_WIDGETS" then
+            local widgetContainer = state.scenarioWidgetContainer
+            if not widgetContainer or not widgetContainer.widgetSetID then
+                return
+            end
+
+            if eventName == "UPDATE_UI_WIDGET" then
+                local widgetInfo = ...
+                local ok, widgetSetID = pcall(function()
+                    return widgetInfo and widgetInfo.widgetSetID
+                end)
+                if not ok or IsSecret(widgetSetID) or widgetSetID ~= widgetContainer.widgetSetID then
+                    return
+                end
+            end
+
+            state.scenarioWidgetRefreshPending = true
+            state.scenarioWidgetRefreshReason = eventName
+            self:RequestCustomRefresh(false)
+            return
+        end
+
         if (eventName == "PLAYER_ENTERING_WORLD" or eventName == "ZONE_CHANGED_NEW_AREA")
             and C_NeighborhoodInitiative
             and C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo
         then
             C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo()
+        end
+        if eventName == "PLAYER_ENTERING_WORLD"
+            or eventName == "ZONE_CHANGED_NEW_AREA"
+            or eventName == "SCENARIO_UPDATE"
+            or eventName == "SCENARIO_CRITERIA_UPDATE"
+            or eventName == "SCENARIO_BONUS_VISIBILITY_UPDATE"
+        then
+            state.scenarioWidgetRefreshPending = true
+            state.scenarioWidgetRefreshReason = eventName
         end
         if eventName == "TRACKED_ACHIEVEMENT_UPDATE" then
             local achievementID, _, elapsed, duration = ...
