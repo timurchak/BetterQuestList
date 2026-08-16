@@ -463,12 +463,36 @@ local function ReadScenario(addon, previousCategory)
         return {}, false
     end
 
-    local ok, scenarioName, currentStage, numStages = pcall(C_Scenario.GetInfo)
+    local ok, scenarioName, currentStage, numStages, flags, scenarioType, textureKit,
+        scenarioID = pcall(function()
+        local name, stage, stages, scenarioFlags, _, _, _, _, _, returnedScenarioType,
+            _, returnedTextureKit, returnedScenarioID = C_Scenario.GetInfo()
+        return name, stage, stages, scenarioFlags, returnedScenarioType, returnedTextureKit,
+            returnedScenarioID
+    end)
     if not ok or IsSecret(scenarioName) or IsSecret(currentStage) or IsSecret(numStages) then
         return CopyQuestArray(previousCategory), true
     end
     if type(numStages) ~= "number" or numStages <= 0 then
         return {}, false
+    end
+
+    local restricted = false
+    if IsSecret(flags) then
+        flags = nil
+        restricted = true
+    end
+    if IsSecret(scenarioType) then
+        scenarioType = nil
+        restricted = true
+    end
+    if IsSecret(textureKit) then
+        textureKit = nil
+        restricted = true
+    end
+    if IsSecret(scenarioID) then
+        scenarioID = nil
+        restricted = true
     end
 
     local stageName
@@ -501,7 +525,6 @@ local function ReadScenario(addon, previousCategory)
     end
 
     local objectives = {}
-    local restricted = false
     if type(weightedProgress) == "number" and type(stageDescription) == "string" and stageDescription ~= "" then
         objectives[1] = {
             text = stageDescription,
@@ -597,6 +620,12 @@ local function ReadScenario(addon, previousCategory)
             title = scenarioTitle,
             stageName = title,
             stageText = stageText,
+            currentStage = currentStage,
+            numStages = numStages,
+            flags = type(flags) == "number" and flags or 0,
+            scenarioType = scenarioType,
+            textureKit = type(textureKit) == "string" and textureKit or "evergreen-scenario",
+            scenarioID = scenarioID,
             widgetSetID = widgetSetID,
             isScenario = true,
             objectives = objectives,

@@ -2,14 +2,14 @@
 
 <img src="Media/BetterQuestListIcon.png" alt="BetterQuestList" width="96">
 
-BetterQuestList is a lightweight, configurable replacement for the visual part of Blizzard's Objective Tracker. It renders one compact, scrollable list while leaving Blizzard's tracker active in the background to process protected game data.
+BetterQuestList is a lightweight, configurable replacement for the visual part of Blizzard's Objective Tracker. It renders one compact, scrollable list while leaving Blizzard's tracker active and structurally untouched in the background to process protected game data.
 
 The current version focuses on predictable behavior and familiar WoW interactions:
 
 - one persistent, user-defined order for all supported categories;
 - mouse-wheel scrolling when the tracked content is taller than the configured tracker area;
 - automatic tracking for newly accepted regular quests through Blizzard's autoQuestWatch setting;
-- native Blizzard scenario presentation for dungeons, Delves, events, and other scenario types, including their own stages, timers, icons, counters, and visual styles;
+- Blizzard scenario widget sets and context-specific tracker textures for dungeons, Delves, events, and other scenario types, including their stages, icons, counters, and visual styles;
 - custom quest rows with native quest POI buttons and multiline objectives;
 - tracked world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets;
 - Blizzard-style right-click menus with tracking actions, quest details, map access, sharing, abandoning, and locale-aware Wowhead links;
@@ -19,10 +19,10 @@ The current version focuses on predictable behavior and familiar WoW interaction
 
 ## Design
 
-BetterQuestList does not reorder or manually update Blizzard's Objective Tracker modules. Regular quests and tracked content are rendered by the addon, while the already-rendered native Scenario module is hosted inside the BetterQuestList scroll area. This preserves Blizzard's context-specific scenario UI instead of approximating every dungeon, Delve, or event with a generic card.
+BetterQuestList does not reorder, reparent, or manually update Blizzard's Objective Tracker modules. Regular quests and tracked content are rendered by the addon. Scenario rows reuse Blizzard-provided widget sets, atlases, fonts, and context metadata without moving the live `ScenarioObjectiveTracker`, because that module reads protected aura data during combat.
 
 > [!IMPORTANT]
-> The stock tracker remains active but visually hidden. BetterQuestList never calls its layout/update methods and does not mutate its module order, allowing Blizzard to continue processing protected Scenario and aura data on its own path.
+> The stock tracker remains active but visually hidden. BetterQuestList never calls its layout/update methods, mutates its module order, or attaches its Scenario module to addon-owned frames, allowing Blizzard to continue processing protected Scenario and aura data on its own path.
 
 ## Localization
 

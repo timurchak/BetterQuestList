@@ -48,6 +48,20 @@ local BACKGROUND_STYLES = {
     },
 }
 
+local SCENARIO_CARD_TEXTURE_OFFSETS = {
+    ["evergreen-scenario"] = { normalX = 0, normalY = 0, finalX = -4, finalY = 2 },
+    ["thewarwithin-scenario"] = { normalX = 0, normalY = 0, finalX = 3, finalY = -2 },
+    ["delves-scenario"] = { normalX = -2, normalY = 1, finalX = -2, finalY = 1 },
+    ["midnight-scenario"] = { normalX = -6, normalY = 0, finalX = -22, finalY = 0 },
+}
+
+local DEFAULT_SCENARIO_CARD_OFFSETS = {
+    normalX = 0,
+    normalY = 0,
+    finalX = -10,
+    finalY = 3,
+}
+
 local FONT_OUTLINE_FLAGS = {
     none = "",
     outline = "OUTLINE",
@@ -508,16 +522,23 @@ local function CreateRow(state)
     row.text:SetIndentedWordWrap(false)
     row.text:SetMaxLines(0)
 
-    row.cardBG = row:CreateTexture(nil, "BACKGROUND")
+    row.cardFrame = CreateFrame("Frame", nil, row)
+    row.cardFrame:SetSize(201, 83)
+    row.cardFrame:Hide()
+
+    row.cardBG = row.cardFrame:CreateTexture(nil, "BACKGROUND")
     row.cardBG:SetAtlas("ScenarioTrackerToast", true)
     row.cardBG:Hide()
 
-    row.cardStage = row:CreateFontString(nil, "ARTWORK", "Game18Font")
+    row.cardFinalBG = row.cardFrame:CreateTexture(nil, "BORDER")
+    row.cardFinalBG:Hide()
+
+    row.cardStage = row.cardFrame:CreateFontString(nil, "ARTWORK", "Game18Font")
     row.cardStage:SetTextColor(1, 0.914, 0.682)
     row.cardStage:SetJustifyH("LEFT")
     row.cardStage:Hide()
 
-    row.cardName = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    row.cardName = row.cardFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     row.cardName:SetTextColor(1, 0.831, 0.380)
     row.cardName:SetJustifyH("LEFT")
     row.cardName:SetJustifyV("TOP")
@@ -691,14 +712,18 @@ local function AcquireRow(state)
     row.findGroupButton:Hide()
     row.findGroupButton:ClearAllPoints()
     row.categoryBG:ClearAllPoints()
+    row.cardFrame:ClearAllPoints()
     row.cardBG:ClearAllPoints()
+    row.cardFinalBG:ClearAllPoints()
     row.cardStage:ClearAllPoints()
     row.cardName:ClearAllPoints()
     row.progress:ClearAllPoints()
     row.timer:ClearAllPoints()
     row.icon:Hide()
     row.categoryBG:Hide()
+    row.cardFrame:Hide()
     row.cardBG:Hide()
+    row.cardFinalBG:Hide()
     row.cardStage:Hide()
     row.cardName:Hide()
     row.progress:Hide()
@@ -849,6 +874,34 @@ local function RefreshScenarioWidgetData(state, widgetContainer)
     end
 end
 
+local function ScenarioAtlasExists(atlas)
+    if not C_Texture or type(C_Texture.GetAtlasInfo) ~= "function" then
+        return true
+    end
+
+    local ok, atlasInfo = pcall(C_Texture.GetAtlasInfo, atlas)
+    return ok and atlasInfo ~= nil and not IsSecret(atlasInfo)
+end
+
+local function GetScenarioCardAtlases(scenario)
+    if type(_G.LE_SCENARIO_TYPE_LEGION_INVASION) == "number"
+        and scenario.scenarioType == _G.LE_SCENARIO_TYPE_LEGION_INVASION
+    then
+        return "legioninvasion-ScenarioTrackerToast", nil
+    end
+
+    local textureKit = scenario.textureKit or "evergreen-scenario"
+    local normalAtlas = textureKit .. "-trackerheader"
+    local finalAtlas = textureKit .. "-trackerheader-final-filigree"
+    if not ScenarioAtlasExists(normalAtlas) then
+        normalAtlas = "evergreen-scenario-trackerheader"
+        finalAtlas = "evergreen-scenario-trackerheader-final-filigree"
+    elseif not ScenarioAtlasExists(finalAtlas) then
+        finalAtlas = nil
+    end
+    return normalAtlas, finalAtlas
+end
+
 local function AddScenarioCard(state, scenario)
     local row = AcquireRow(state)
     row:EnableMouse(false)
@@ -870,21 +923,76 @@ local function AddScenarioCard(state, scenario)
         return
     end
 
-    row.cardBG:SetPoint("TOP", row, "TOP", 0, 0)
+    local textureKit = scenario.textureKit or "evergreen-scenario"
+    local offsets = SCENARIO_CARD_TEXTURE_OFFSETS[textureKit]
+        or DEFAULT_SCENARIO_CARD_OFFSETS
+    local normalAtlas, finalAtlas = GetScenarioCardAtlases(scenario)
+    local isLegionInvasion = type(_G.LE_SCENARIO_TYPE_LEGION_INVASION) == "number"
+        and scenario.scenarioType == _G.LE_SCENARIO_TYPE_LEGION_INVASION
+    local isFinalStage = type(scenario.currentStage) == "number"
+        and type(scenario.numStages) == "number"
+        and scenario.currentStage == scenario.numStages
+    local suppressStageText = type(scenario.flags) == "number"
+        and type(_G.SCENARIO_FLAG_SUPRESS_STAGE_TEXT) == "number"
+        and bit
+        and bit.band
+        and bit.band(scenario.flags, _G.SCENARIO_FLAG_SUPRESS_STAGE_TEXT)
+            == _G.SCENARIO_FLAG_SUPRESS_STAGE_TEXT
+
+    row.cardFrame:SetPoint("TOP", row, "TOP", 0, 0)
+    row.cardFrame:Show()
+    row.cardBG:SetPoint("TOPLEFT", row.cardFrame, "TOPLEFT", offsets.normalX, offsets.normalY)
+    row.cardBG:SetAtlas(normalAtlas, true)
     row.cardBG:Show()
-    row.cardStage:SetPoint("TOPLEFT", row.cardBG, "TOPLEFT", 15, -10)
-    row.cardStage:SetPoint("RIGHT", row.cardBG, "RIGHT", -14, 0)
-    row.cardStage:SetText(scenario.stageText or "")
+
+    if isFinalStage and finalAtlas then
+        row.cardFinalBG:SetPoint(
+            "TOPLEFT",
+            row.cardFrame,
+            "TOPLEFT",
+            offsets.finalX,
+            offsets.finalY
+        )
+        row.cardFinalBG:SetAtlas(finalAtlas, true)
+        row.cardFinalBG:Show()
+    end
+
+    local stageTextWidth = textureKit == "evergreen-scenario" and 210 or 172
+    row.cardStage:SetPoint(
+        "TOPLEFT",
+        row.cardFrame,
+        "TOPLEFT",
+        15,
+        suppressStageText and -18 or -10
+    )
+    row.cardStage:SetSize(stageTextWidth, suppressStageText and 36 or 18)
+    if suppressStageText then
+        row.cardStage:SetText(scenario.stageName or scenario.title or "")
+    elseif isFinalStage and _G.SCENARIO_STAGE_FINAL then
+        row.cardStage:SetText(_G.SCENARIO_STAGE_FINAL)
+    elseif _G.SCENARIO_STAGE and type(scenario.currentStage) == "number" then
+        row.cardStage:SetFormattedText(_G.SCENARIO_STAGE, scenario.currentStage)
+    else
+        row.cardStage:SetText(scenario.stageText or "")
+    end
     ApplySelectedFont(state.addon, row.cardStage, "Game18Font")
+    if isLegionInvasion then
+        row.cardStage:SetTextColor(0.753, 1, 0)
+    else
+        row.cardStage:SetTextColor(1, 0.914, 0.682)
+    end
     row.cardStage:Show()
     row.cardName:SetPoint("TOPLEFT", row.cardStage, "BOTTOMLEFT", 0, -4)
-    row.cardName:SetPoint("RIGHT", row.cardBG, "RIGHT", -14, 0)
+    row.cardName:SetSize(stageTextWidth, 28)
     row.cardName:SetText(scenario.stageName or scenario.title)
     ApplySelectedFont(state.addon, row.cardName, "GameFontNormal")
-    row.cardName:Show()
+    row.cardName:SetShown(not suppressStageText)
     PlaceRow(state, row, 83)
 end
 
+-- Diagnostics may inspect Blizzard's module, but runtime rendering must never
+-- reparent, anchor, show, hide, or relayout it. Those writes taint the module
+-- before LayoutContents reads secret aura data in combat.
 local function GetNativeScenarioModule(state)
     local module = state.nativeScenarioModule or _G.ScenarioObjectiveTracker
     if not module then
@@ -893,10 +1001,6 @@ local function GetNativeScenarioModule(state)
 
     if not state.nativeScenarioModule then
         state.nativeScenarioModule = module
-        local ok, parent = pcall(module.GetParent, module)
-        if ok then
-            state.nativeScenarioOriginalParent = parent
-        end
     end
     return module
 end
@@ -908,11 +1012,6 @@ local function IsNativeScenarioProtected(module)
 
     local ok, protected = pcall(module.IsProtected, module)
     return ok and not IsSecret(protected) and protected and true or false
-end
-
-local function CanMoveNativeScenario(module)
-    return module
-        and not (IsNativeScenarioProtected(module) and InCombatLockdown())
 end
 
 local function HasNativeScenarioContents(state)
@@ -942,109 +1041,6 @@ local function HasNativeScenarioContents(state)
         and not IsSecret(shown)
         and okHeight
         and GetSafeNumber(height, 0) > 1
-end
-
-local function RequestNativeScenarioStageWidgetLayout(state)
-    if state.nativeScenarioStageLayoutScheduled then
-        return
-    end
-
-    local module = GetNativeScenarioModule(state)
-    local stageBlock = module and module.StageBlock
-    local widgetContainer = stageBlock and stageBlock.WidgetContainer
-    if not widgetContainer
-        or not widgetContainer.widgetSetID
-        or type(widgetContainer.UpdateWidgetLayout) ~= "function"
-    then
-        return
-    end
-
-    state.nativeScenarioStageLayoutScheduled = true
-    C_Timer.After(0, function()
-        state.nativeScenarioStageLayoutScheduled = false
-        if not state.nativeScenarioAttached
-            or state.nativeScenarioModule ~= module
-            or state.nativeScenarioRow == nil
-            or module:GetParent() ~= state.nativeScenarioRow
-            or stageBlock.WidgetContainer ~= widgetContainer
-        then
-            return
-        end
-
-        -- Scenario step widget sets use a right-anchored ResizeLayoutFrame.
-        -- On first registration it can retain its initial 1 px width when the
-        -- whole native module is reparented later in the same frame. Re-running
-        -- only the widget container layout after the move resolves its extents;
-        -- unlike ScenarioObjectiveTracker:Update(), this does not read auras or
-        -- other protected scenario data.
-        pcall(widgetContainer.UpdateWidgetLayout, widgetContainer)
-    end)
-end
-
-local function AnchorNativeScenarioModule(state, row)
-    local module = GetNativeScenarioModule(state)
-    if not row or not CanMoveNativeScenario(module) then
-        return false
-    end
-
-    local leftMargin = GetSafeNumber(module.leftMargin, -20)
-    local ok = pcall(function()
-        module:SetParent(row)
-        module:ClearAllPoints()
-        module:SetPoint("TOPLEFT", row, "TOPLEFT", FRAME_LEFT_OVERFLOW + leftMargin, 0)
-        module:SetFrameLevel(row:GetFrameLevel() + 1)
-        module:Show()
-    end)
-    if not ok then
-        return false
-    end
-
-    state.nativeScenarioAttached = true
-    state.nativeScenarioRow = row
-    RequestNativeScenarioStageWidgetLayout(state)
-    return true
-end
-
-local function RestoreNativeScenarioModule(state)
-    if not state.nativeScenarioAttached then
-        return true
-    end
-
-    local module = GetNativeScenarioModule(state)
-    if not CanMoveNativeScenario(module) then
-        return false
-    end
-
-    local parent = state.nativeScenarioOriginalParent or state.blizzardTracker
-    local ok = pcall(function()
-        module:SetParent(parent)
-        module:ClearAllPoints()
-    end)
-    if not ok then
-        return false
-    end
-
-    state.nativeScenarioAttached = false
-    state.nativeScenarioRow = nil
-    return true
-end
-
-local function AddNativeScenarioRow(state)
-    local module = GetNativeScenarioModule(state)
-    local row = AcquireRow(state)
-    row:EnableMouse(false)
-    row.text:Hide()
-
-    if not AnchorNativeScenarioModule(state, row) then
-        row:Hide()
-        state.usedRows = state.usedRows - 1
-        return false
-    end
-
-    local moduleHeight = GetSafeNumber(module:GetHeight(), 1)
-    PlaceRow(state, row, math.max(moduleHeight, 1))
-    state.nativeScenarioUsed = true
-    return true
 end
 
 local function AddObjectiveWidgetRow(state)
@@ -1525,14 +1521,6 @@ function BQL:RenderCustomTracker()
     SetTrackerGeometry(state)
     HideBlizzardTracker(state)
 
-    -- The Blizzard scenario module keeps updating through its original
-    -- ObjectiveTracker container. Detach it before recycling our host rows.
-    -- If it ever becomes protected, leave the current layout untouched until
-    -- combat ends instead of attempting a forbidden frame mutation.
-    if not RestoreNativeScenarioModule(state) then
-        return
-    end
-
     local previousScroll = state.scrollFrame:GetVerticalScroll()
     if IsSecret(previousScroll) then
         previousScroll = 0
@@ -1553,52 +1541,45 @@ function BQL:RenderCustomTracker()
     if not self.db.collapsed then
         for _, category in ipairs(self:ReconcileOrder()) do
             local quests = state.snapshot.categories[category] or {}
-            local useNativeScenario = category == "ScenarioObjectiveTracker"
-                and HasNativeScenarioContents(state)
-            if #quests > 0 or useNativeScenario then
+            if #quests > 0 then
                 if hasVisibleCategory then
                     AddVerticalSpacing(state, self.db.categorySpacing)
                 end
 
-                if useNativeScenario and AddNativeScenarioRow(state) then
+                local firstQuest = quests[1]
+                if firstQuest then
+                    local categoryLabel = (firstQuest.isScenario or firstQuest.isObjectiveWidget)
+                        and firstQuest.title
+                        or nil
+                    AddCategoryRow(state, category, categoryLabel)
                     hasVisibleCategory = true
-                    visibleQuestCount = visibleQuestCount + 1
-                else
-                    local firstQuest = quests[1]
-                    if firstQuest then
-                        local categoryLabel = (firstQuest.isScenario or firstQuest.isObjectiveWidget)
-                            and firstQuest.title
-                            or nil
-                        AddCategoryRow(state, category, categoryLabel)
-                        hasVisibleCategory = true
-                        for questIndex, quest in ipairs(quests) do
-                            if questIndex > 1 then
-                                AddVerticalSpacing(state, self.db.questSpacing)
-                            end
-                            if quest.isScenario then
-                                AddScenarioCard(state, quest)
-                            elseif quest.isObjectiveWidget then
-                                AddObjectiveWidgetRow(state)
-                            else
-                                AddQuestTitleRow(state, quest)
-                            end
-                            if #(quest.objectives or {}) > 0 then
-                                AddVerticalSpacing(state, self.db.questObjectiveSpacing)
-                            end
-                            for _, objective in ipairs(quest.objectives or {}) do
-                                AddObjectiveRow(state, quest, objective)
-                                if objective.timerDuration and objective.timerStartTime then
-                                    AddTimerRow(
-                                        state,
-                                        quest,
-                                        objective.timerDuration,
-                                        objective.timerStartTime
-                                    )
-                                end
-                            end
-                            AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
-                            visibleQuestCount = visibleQuestCount + 1
+                    for questIndex, quest in ipairs(quests) do
+                        if questIndex > 1 then
+                            AddVerticalSpacing(state, self.db.questSpacing)
                         end
+                        if quest.isScenario then
+                            AddScenarioCard(state, quest)
+                        elseif quest.isObjectiveWidget then
+                            AddObjectiveWidgetRow(state)
+                        else
+                            AddQuestTitleRow(state, quest)
+                        end
+                        if #(quest.objectives or {}) > 0 then
+                            AddVerticalSpacing(state, self.db.questObjectiveSpacing)
+                        end
+                        for _, objective in ipairs(quest.objectives or {}) do
+                            AddObjectiveRow(state, quest, objective)
+                            if objective.timerDuration and objective.timerStartTime then
+                                AddTimerRow(
+                                    state,
+                                    quest,
+                                    objective.timerDuration,
+                                    objective.timerStartTime
+                                )
+                            end
+                        end
+                        AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
+                        visibleQuestCount = visibleQuestCount + 1
                     end
                 end
             end
@@ -1754,13 +1735,6 @@ function BQL:InitializeCustomTracker()
     objectiveWidgetContainer:Show()
 
     local nativeScenarioModule = _G.ScenarioObjectiveTracker
-    local nativeScenarioOriginalParent
-    if nativeScenarioModule then
-        local ok, parent = pcall(nativeScenarioModule.GetParent, nativeScenarioModule)
-        if ok then
-            nativeScenarioOriginalParent = parent
-        end
-    end
 
     self.customAchievementTimers = self.customAchievementTimers or {}
     self.customState = {
@@ -1776,7 +1750,6 @@ function BQL:InitializeCustomTracker()
         scenarioWidgetContainer = scenarioWidgetContainer,
         objectiveWidgetContainer = objectiveWidgetContainer,
         nativeScenarioModule = nativeScenarioModule,
-        nativeScenarioOriginalParent = nativeScenarioOriginalParent,
         rows = {},
         usedRows = 0,
         contentHeight = 0,
@@ -1835,28 +1808,6 @@ function BQL:InitializeCustomTracker()
     hooksecurefunc(blizzardTracker, "Show", function()
         HideBlizzardTracker(self.customState)
     end)
-
-    -- ObjectiveTrackerContainerMixin captures ObjectiveTrackerFrame.Update in a
-    -- dirty callback during Blizzard's OnLoad. Hooking the frame method itself
-    -- therefore misses those later layouts. The base container method is the
-    -- final call that assigns module anchors, so restore ours after that call.
-    if ObjectiveTrackerContainerMixin
-        and type(ObjectiveTrackerContainerMixin.Update) == "function"
-    then
-        hooksecurefunc(ObjectiveTrackerContainerMixin, "Update", function(container)
-            if container ~= blizzardTracker then
-                return
-            end
-            local state = self.customState
-            if not state then
-                return
-            end
-            if state.nativeScenarioAttached and state.nativeScenarioRow then
-                AnchorNativeScenarioModule(state, state.nativeScenarioRow)
-            end
-            self:RequestCustomRefresh(false)
-        end)
-    end
 
     local events = CreateFrame("Frame")
     local eventNames = {

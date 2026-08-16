@@ -2,7 +2,7 @@
 
 BetterQuestList is a lightweight, configurable replacement for the visual part of World of Warcraft's Objective Tracker. It keeps the familiar Blizzard experience while adding persistent category ordering, reliable mouse-wheel scrolling, and a cleaner customizable layout.
 
-Unlike full tracker replacements, BetterQuestList does not try to recreate every dungeon, Delve, event, or scenario interface. It hosts Blizzard's native Scenario module inside its scrollable list, preserving the correct stages, timers, icons, counters, lives, and context-specific visuals supplied by the game.
+Unlike full tracker replacements, BetterQuestList does not modify or reparent Blizzard's live Scenario module. Its scenario rows reuse Blizzard-provided widget sets, textures, fonts, and context data, preserving familiar stages, icons, counters, lives, and visual styles without tainting Blizzard's protected combat updates.
 
 > **Work in progress:** BetterQuestList is under active development. Some content types, combat situations, or combinations with other UI addons may still expose bugs or visual conflicts. Feedback, suggestions, compatibility reports, and bug reports are very welcome and directly help shape upcoming releases.
 
@@ -12,7 +12,7 @@ Unlike full tracker replacements, BetterQuestList does not try to recreate every
 - Keep that order after login, reloads, combat, and tracker updates.
 - Scroll long objective lists with the mouse wheel.
 - Automatically track newly accepted regular quests using Blizzard's standard setting.
-- Display native Blizzard scenario UI for dungeons, Delves, events, and other scenarios.
+- Display Blizzard scenario widgets and context-specific tracker visuals for dungeons, Delves, events, and other scenarios.
 - Show multiline quest names and objectives without losing counters at the edge.
 - Retain familiar quest POI icons, quest-item buttons, group finder buttons, timers, auto-complete actions, and party progress tooltips.
 - Track regular quests, campaigns, world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets.
