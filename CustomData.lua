@@ -255,6 +255,7 @@ local function BuildQuest(addon, questID, category, previousQuest)
     if not completeAvailable then
         isComplete = readyForTurnIn and true or false
     end
+    isComplete = (isComplete or readyForTurnIn) and true or false
 
     local questCacheEntry
     local isAutoComplete = previousQuest and previousQuest.isAutoComplete or false
@@ -299,17 +300,13 @@ local function BuildQuest(addon, questID, category, previousQuest)
                     finished = true,
                 },
             }
-        elseif questLogIndex and type(_G.GetQuestLogCompletionText) == "function" then
-            local completionText, completionAvailable = SafeCall(
-                _G.GetQuestLogCompletionText,
-                questLogIndex
-            )
-            if completionAvailable
-                and type(completionText) == "string"
-                and completionText ~= ""
-            then
-                objectives = { { text = completionText, finished = true } }
-            end
+        else
+            objectives = {
+                {
+                    text = _G.QUEST_WATCH_QUEST_READY or addon.text.questComplete,
+                    finished = true,
+                },
+            }
         end
     else
         local superTrackedID, superTrackedAvailable = SafeCall(
@@ -367,7 +364,7 @@ local function BuildQuest(addon, questID, category, previousQuest)
         title = title,
         objectives = objectives,
         readyForTurnIn = readyForTurnIn and true or false,
-        isComplete = isComplete and true or false,
+        isComplete = isComplete,
         questLogIndex = questLogIndex,
         isFailed = isFailed and true or false,
         isAutoComplete = isAutoComplete,

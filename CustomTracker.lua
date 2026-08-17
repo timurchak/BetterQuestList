@@ -750,9 +750,10 @@ local function CreateRow(state)
             return
         end
 
-        if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-            C_SuperTrack.SetSuperTrackedQuestID(questID)
-            state.addon:RequestCustomRefresh(false)
+        if QuestMapFrame_OpenToQuestDetails then
+            QuestMapFrame_OpenToQuestDetails(questID)
+        elseif QuestUtil and QuestUtil.OpenQuestDetails then
+            QuestUtil.OpenQuestDetails(questID)
         end
     end)
     return row
