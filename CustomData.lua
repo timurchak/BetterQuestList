@@ -11,6 +11,7 @@ local CATEGORY_INITIATIVES = "InitiativeTasksObjectiveTracker"
 local CATEGORY_PROFESSIONS = "ProfessionsRecipeTracker"
 local CATEGORY_BONUS = "BonusObjectiveTracker"
 local CATEGORY_WORLD = "WorldQuestObjectiveTracker"
+local CATEGORY_MYTHIC_TIMER = "EnhanceQoLMythicPlusTimer"
 local DAMAGE_METER_CATEGORIES = {
     "EnhanceQoLDamageMeter1",
     "EnhanceQoLDamageMeter2",
@@ -222,6 +223,26 @@ local function ReadObjectives(addon, questID, previousQuest)
     return objectives, restricted
 end
 
+-- A quest whose entire purpose is a single non-measurable interaction (meet,
+-- speak, report, and similar events) should keep Blizzard's completion text.
+-- Measurable and multi-objective quests use the compact "ready for turn-in"
+-- state instead, so stale counters and completed progress bars cannot linger.
+local function IsSingleInteractionQuest(objectives)
+    if type(objectives) ~= "table" or #objectives ~= 1 then
+        return false
+    end
+
+    local objective = objectives[1]
+    if type(objective) ~= "table" or not objective.finished then
+        return false
+    end
+    if objective.progress ~= nil or objective.progressText ~= nil then
+        return false
+    end
+
+    return objective.type == "event"
+end
+
 local function BuildQuest(addon, questID, category, previousQuest)
     local title, titleAvailable = SafeCall(C_QuestLog and C_QuestLog.GetTitleForQuestID, questID)
     if not titleAvailable or type(title) ~= "string" or title == "" then
@@ -232,6 +253,18 @@ local function BuildQuest(addon, questID, category, previousQuest)
     end
 
     local objectives, restricted = ReadObjectives(addon, questID, previousQuest)
+    local questClassification, classificationAvailable = SafeCall(
+        C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification,
+        questID
+    )
+    if not classificationAvailable then
+        questClassification = previousQuest and previousQuest.questClassification or nil
+    end
+    local objectiveDataRestricted = restricted
+    local completionMode = "objectives"
+    local rawCompletionObjective = #objectives == 1 and objectives[1] or nil
+    local rawCompletionObjectiveCount = #objectives
+    local rawCompletionText
     local readyForTurnIn, readyAvailable = SafeCall(C_QuestLog and C_QuestLog.ReadyForTurnIn, questID)
     if not readyAvailable then
         readyForTurnIn = previousQuest and previousQuest.readyForTurnIn or false
@@ -290,6 +323,7 @@ local function BuildQuest(addon, questID, category, previousQuest)
 
     if isComplete then
         if isAutoComplete then
+            completionMode = "auto"
             objectives = {
                 {
                     text = _G.QUEST_WATCH_QUEST_COMPLETE or addon.text.questComplete,
@@ -301,9 +335,29 @@ local function BuildQuest(addon, questID, category, previousQuest)
                 },
             }
         else
+            if not objectiveDataRestricted
+                and IsSingleInteractionQuest(objectives)
+                and questLogIndex
+                and type(_G.GetQuestLogCompletionText) == "function"
+            then
+                local completionText, completionTextAvailable = SafeCall(
+                    _G.GetQuestLogCompletionText,
+                    questLogIndex
+                )
+                if completionTextAvailable
+                    and type(completionText) == "string"
+                    and completionText ~= ""
+                then
+                    rawCompletionText = completionText
+                end
+            end
+
+            completionMode = rawCompletionText and "interaction" or "ready"
             objectives = {
                 {
-                    text = _G.QUEST_WATCH_QUEST_READY or addon.text.questComplete,
+                    text = rawCompletionText
+                        or _G.QUEST_WATCH_QUEST_READY
+                        or addon.text.questComplete,
                     finished = true,
                 },
             }
@@ -372,6 +426,12 @@ local function BuildQuest(addon, questID, category, previousQuest)
         showsItem = showsItem,
         timerDuration = timerDuration,
         timerStartTime = timerStartTime,
+        completionMode = completionMode,
+        rawCompletionText = rawCompletionText,
+        rawCompletionObjectiveCount = rawCompletionObjectiveCount,
+        rawCompletionObjectiveType = rawCompletionObjective and rawCompletionObjective.type or nil,
+        rawCompletionObjectiveText = rawCompletionObjective and rawCompletionObjective.text or nil,
+        questClassification = questClassification,
     }, restricted
 end
 
@@ -510,14 +570,19 @@ local function ReadScenario(addon, previousCategory)
     local stageName
     local stageDescription
     local numCriteria = 0
+    local numSpells = 0
+    local allSpellInfo
     local weightedProgress
     local widgetSetID
     if C_Scenario.GetStepInfo then
         local stepOK, returnedStageName, returnedStageDescription, returnedNumCriteria,
-            returnedWeightedProgress, returnedWidgetSetID = pcall(function()
-            local name, description, criteriaCount, _, _, _, _, _, _, progress, _, stepWidgetSetID =
+            returnedNumSpells, returnedAllSpellInfo, returnedWeightedProgress,
+            returnedWidgetSetID = pcall(function()
+            local name, description, criteriaCount, _, _, _, _, spellCount, spellInfo,
+                progress, _, stepWidgetSetID =
                 C_Scenario.GetStepInfo()
-            return name, description, criteriaCount, progress, stepWidgetSetID
+            return name, description, criteriaCount, spellCount, spellInfo, progress,
+                stepWidgetSetID
         end)
         if stepOK
             and not IsSecret(returnedStageName)
@@ -529,6 +594,16 @@ local function ReadScenario(addon, previousCategory)
             stageName = returnedStageName
             stageDescription = returnedStageDescription
             numCriteria = type(returnedNumCriteria) == "number" and returnedNumCriteria or 0
+            if not IsSecret(returnedNumSpells) and type(returnedNumSpells) == "number" then
+                numSpells = math.max(returnedNumSpells, 0)
+            else
+                restricted = true
+            end
+            if not IsSecret(returnedAllSpellInfo) then
+                allSpellInfo = returnedAllSpellInfo
+            elseif numSpells > 0 then
+                restricted = true
+            end
             weightedProgress = returnedWeightedProgress
             widgetSetID = type(returnedWidgetSetID) == "number" and returnedWidgetSetID or nil
         else
@@ -554,6 +629,54 @@ local function ReadScenario(addon, previousCategory)
     local sameStage = sameScenario
         and previousScenario.currentStage == currentStage
         and previousScenario.stageName == title
+
+    -- Scenario actions (the clickable "quest items" used by delves) are spells,
+    -- not quest-log special items. Keep a safe snapshot so the secure action
+    -- button can use them without consulting Blizzard's tracker frames.
+    local scenarioSpells = {}
+    local spellCount = SafeArrayLength(allSpellInfo)
+    if spellCount then
+        for spellIndex = 1, spellCount do
+            local spellInfo, spellAvailable = ReadField(allSpellInfo, spellIndex)
+            local spellID
+            local idAvailable = false
+            local spellName
+            local nameAvailable = false
+            local spellIcon
+            local iconAvailable = false
+            if spellAvailable then
+                spellID, idAvailable = ReadField(spellInfo, "spellID")
+                spellName, nameAvailable = ReadField(spellInfo, "spellName")
+                spellIcon, iconAvailable = ReadField(spellInfo, "spellIcon")
+            end
+            if idAvailable and type(spellID) == "number" and spellID > 0 then
+                scenarioSpells[#scenarioSpells + 1] = {
+                    spellID = spellID,
+                    spellName = nameAvailable and type(spellName) == "string" and spellName or nil,
+                    spellIcon = iconAvailable
+                        and (type(spellIcon) == "number" or type(spellIcon) == "string")
+                        and spellIcon
+                        or nil,
+                }
+                if not nameAvailable or not iconAvailable then
+                    restricted = true
+                end
+            else
+                restricted = true
+            end
+        end
+    elseif numSpells > 0 then
+        restricted = true
+    end
+    if #scenarioSpells == 0
+        and (numSpells > 0 or restricted)
+        and sameStage
+        and type(previousScenario.scenarioSpells) == "table"
+    then
+        for index, spellInfo in ipairs(previousScenario.scenarioSpells) do
+            scenarioSpells[index] = spellInfo
+        end
+    end
 
     local completedCriteria = addon.customState and addon.customState.completedScenarioCriteria or {}
     local objectives = {}
@@ -748,6 +871,7 @@ local function ReadScenario(addon, previousCategory)
             textureKit = type(textureKit) == "string" and textureKit or "evergreen-scenario",
             scenarioID = scenarioID,
             widgetSetID = widgetSetID,
+            scenarioSpells = scenarioSpells,
             isScenario = true,
             objectives = objectives,
             readyForTurnIn = false,
@@ -1529,6 +1653,16 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
     )
     categories[CATEGORY_WIDGETS] = widgetCategory
     snapshot.restricted = snapshot.restricted or widgetRestricted
+
+    local mythicTimerEntry = self.GetEnhanceQoLMythicPlusTimerEntry
+        and self:GetEnhanceQoLMythicPlusTimerEntry()
+    categories[CATEGORY_MYTHIC_TIMER] = mythicTimerEntry and { mythicTimerEntry } or {}
+    if mythicTimerEntry then
+        -- The EnhanceQoL timer already renders the dungeon title, timer,
+        -- deaths, objectives, and enemy forces. Do not duplicate Blizzard's
+        -- complete Mythic+ scenario block while the replacement is active.
+        categories[CATEGORY_SCENARIO] = {}
+    end
 
     local adventureCategory, adventureRestricted = ReadAdventureTracking(
         previousSnapshot

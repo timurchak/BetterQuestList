@@ -1,7 +1,7 @@
 local _, BQL = ...
 
 local ROW_HEIGHT = 24
-local MAX_ROWS = 16
+local MAX_ROWS = #BQL.DEFAULT_ORDER
 
 local function CreateLabel(parent, fontObject, text)
     local label = parent:CreateFontString(nil, "ARTWORK", fontObject)
@@ -22,7 +22,7 @@ local function CreateMoveButton(parent, direction, tooltipText)
         local tooltip = BQL:GetTooltip()
         tooltip:SetOwner(self, "ANCHOR_RIGHT")
         tooltip:SetText(tooltipText)
-        tooltip:Show()
+        tooltip:ShowTooltip()
     end)
     button:SetScript("OnLeave", function()
         BQL:HideTooltip()
@@ -77,7 +77,7 @@ function BQL:CreateCategoryNamesOptions(parentCategory)
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, 720)
+    controls:SetSize(620, math.max(720, 130 + MAX_ROWS * 38))
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -196,7 +196,7 @@ function BQL:CreateOptions()
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, 1210)
+    controls:SetSize(620, 1280)
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -308,8 +308,93 @@ function BQL:CreateOptions()
     autoTrackDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     autoTrackDescription:SetWordWrap(true)
 
+    local activeQuestItemCheck = CreateFrame("CheckButton", nil, controls, "UICheckButtonTemplate")
+    activeQuestItemCheck:SetPoint("TOPLEFT", autoTrackDescription, "BOTTOMLEFT", -30, -14)
+    activeQuestItemCheck:SetScript("OnClick", function(button)
+        self:SetActiveQuestItemEnabled(button:GetChecked() and true or false)
+    end)
+    self.activeQuestItemCheck = activeQuestItemCheck
+
+    local activeQuestItemLabel = CreateLabel(
+        controls,
+        "GameFontNormal",
+        self.text.activeQuestItem
+    )
+    activeQuestItemLabel:SetPoint("LEFT", activeQuestItemCheck, "RIGHT", 2, 0)
+
+    local activeQuestItemDescription = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.activeQuestItemDescription
+    )
+    activeQuestItemDescription:SetPoint("TOPLEFT", activeQuestItemCheck, "BOTTOMLEFT", 30, -2)
+    activeQuestItemDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    activeQuestItemDescription:SetWordWrap(true)
+
+    local mythicPlusTimerHeightLabel = CreateLabel(
+        controls,
+        "GameFontHighlight",
+        self.text.mythicPlusTimerHeight
+    )
+    mythicPlusTimerHeightLabel:SetPoint(
+        "TOPLEFT",
+        activeQuestItemDescription,
+        "BOTTOMLEFT",
+        30,
+        -18
+    )
+    mythicPlusTimerHeightLabel:SetWidth(190)
+
+    local mythicPlusTimerHeightSlider = CreateFrame(
+        "Slider",
+        nil,
+        controls,
+        "OptionsSliderTemplate"
+    )
+    mythicPlusTimerHeightSlider:SetPoint(
+        "LEFT",
+        mythicPlusTimerHeightLabel,
+        "RIGHT",
+        18,
+        0
+    )
+    mythicPlusTimerHeightSlider:SetWidth(170)
+    mythicPlusTimerHeightSlider:SetMinMaxValues(0, 600)
+    mythicPlusTimerHeightSlider:SetValueStep(1)
+    mythicPlusTimerHeightSlider:SetObeyStepOnDrag(true)
+    self.mythicPlusTimerHeightSlider = mythicPlusTimerHeightSlider
+
+    local mythicPlusTimerHeightValue = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        ""
+    )
+    mythicPlusTimerHeightValue:SetPoint(
+        "LEFT",
+        mythicPlusTimerHeightSlider,
+        "RIGHT",
+        12,
+        0
+    )
+    mythicPlusTimerHeightValue:SetWidth(75)
+    self.mythicPlusTimerHeightValue = mythicPlusTimerHeightValue
+
+    mythicPlusTimerHeightSlider:SetScript("OnValueChanged", function(_, value)
+        local roundedValue = math.max(0, math.min(math.floor(value + 0.5), 600))
+        mythicPlusTimerHeightValue:SetText(
+            roundedValue == 0 and self.text.automatic or ("%d px"):format(roundedValue)
+        )
+        if self.db.enhanceQoLMythicPlusTimerHeight ~= roundedValue then
+            self.db.enhanceQoLMythicPlusTimerHeight = roundedValue
+            self:RequestCustomRefresh(false)
+            if self.RefreshEditModeAppearancePanel then
+                self:RefreshEditModeAppearancePanel()
+            end
+        end
+    end)
+
     local appearanceTitle = CreateLabel(controls, "GameFontNormal", self.text.appearance)
-    appearanceTitle:SetPoint("TOPLEFT", autoTrackDescription, "BOTTOMLEFT", -30, -18)
+    appearanceTitle:SetPoint("TOPLEFT", mythicPlusTimerHeightLabel, "BOTTOMLEFT", -30, -22)
 
     local fontLabel = CreateLabel(controls, "GameFontHighlight", self.text.font)
     fontLabel:SetPoint("TOPLEFT", appearanceTitle, "BOTTOMLEFT", 0, -18)
@@ -582,6 +667,16 @@ function BQL:RefreshOptions()
     self.scrollCheck:SetEnabled(true)
     self.autoTrackCheck:SetChecked(self:IsAcceptedQuestAutoTrackingEnabled())
     self.autoTrackCheck:SetEnabled(C_CVar and type(C_CVar.SetCVar) == "function")
+    self.activeQuestItemCheck:SetChecked(self.db.activeQuestItemEnabled)
+    self.activeQuestItemCheck:SetEnabled(self.activeQuestItem ~= nil)
+    self.mythicPlusTimerHeightSlider:SetValue(
+        self.db.enhanceQoLMythicPlusTimerHeight
+    )
+    self.mythicPlusTimerHeightValue:SetText(
+        self.db.enhanceQoLMythicPlusTimerHeight == 0
+            and self.text.automatic
+            or ("%d px"):format(self.db.enhanceQoLMythicPlusTimerHeight)
+    )
     self.fontDropdown:Refresh()
     self.fontOutlineDropdown:Refresh()
     self.fontShadowDropdown:Refresh()

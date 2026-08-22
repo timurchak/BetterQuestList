@@ -255,10 +255,10 @@ function BQL:OnBetterQuestListEditModeEnter()
         state.editModeActive = true
         state.scrollFrame:EnableMouseWheel(false)
         state.collapseButton:Disable()
-        if state.blizzardTracker.Selection then
-            state.blizzardTracker.Selection:Hide()
-        end
         self:RequestCustomRefresh(false)
+    end
+    if self.OnActiveQuestItemEditModeEnter then
+        self:OnActiveQuestItemEditModeEnter()
     end
 
     local manager = _G.EditModeManagerFrame
@@ -298,6 +298,9 @@ function BQL:OnBetterQuestListEditModeExit()
         state.scrollFrame:EnableMouseWheel(true)
         state.collapseButton:Enable()
         self:RequestCustomRefresh(false)
+    end
+    if self.OnActiveQuestItemEditModeExit then
+        self:OnActiveQuestItemEditModeExit()
     end
     CloseDropDownMenus()
 end
@@ -371,7 +374,7 @@ function BQL:InitializeEditModeIntegration()
                 and self.text.showEditModeHighlight
                 or self.text.hideEditModeHighlight
         )
-        tooltip:Show()
+        tooltip:ShowTooltip()
     end)
     eyeButton:SetScript("OnLeave", function()
         self:HideTooltip()
@@ -434,6 +437,25 @@ function BQL:InitializeEditModeIntegration()
             end,
             function(value)
                 return ("%d px"):format(value)
+            end
+        ),
+        CreateSlider(
+            panel,
+            self.text.mythicPlusTimerHeight,
+            0,
+            600,
+            function()
+                return self.db.enhanceQoLMythicPlusTimerHeight
+            end,
+            function(value)
+                self.db.enhanceQoLMythicPlusTimerHeight = value
+                self:RequestCustomRefresh(false)
+                if self.RefreshOptions then
+                    self:RefreshOptions()
+                end
+            end,
+            function(value)
+                return value == 0 and self.text.automatic or ("%d px"):format(value)
             end
         ),
         CreateDropdownRow(
@@ -588,6 +610,9 @@ function BQL:InitializeEditModeIntegration()
         eyeButton = eyeButton,
         optionRows = optionRows,
     }
+    if self.InitializeActiveQuestItemEditMode then
+        self:InitializeActiveQuestItemEditMode()
+    end
 
     local function SelectBetterQuestList()
         if InCombatLockdown() then
@@ -597,9 +622,10 @@ function BQL:InitializeEditModeIntegration()
         local manager = _G.EditModeManagerFrame
         local tracker = state.blizzardTracker
         if manager and manager.SelectSystem and tracker then
-            manager:SelectSystem(tracker)
-            if tracker.Selection then
-                tracker.Selection:Hide()
+            if type(securecallfunction) == "function" then
+                securecallfunction(manager.SelectSystem, manager, tracker)
+            else
+                manager:SelectSystem(tracker)
             end
             if _G.EditModeSystemSettingsDialog then
                 EditModeSystemSettingsDialog:Hide()
@@ -619,13 +645,21 @@ function BQL:InitializeEditModeIntegration()
         end
         local tracker = state.blizzardTracker
         if tracker and tracker.OnDragStart then
-            tracker:OnDragStart()
+            if type(securecallfunction) == "function" then
+                securecallfunction(tracker.OnDragStart, tracker)
+            else
+                tracker:OnDragStart()
+            end
         end
     end)
     overlay:SetScript("OnDragStop", function()
         local tracker = state.blizzardTracker
         if tracker and tracker.OnDragStop then
-            tracker:OnDragStop()
+            if type(securecallfunction) == "function" then
+                securecallfunction(tracker.OnDragStop, tracker)
+            else
+                tracker:OnDragStop()
+            end
         end
         self:PositionEditModeAppearancePanel()
     end)

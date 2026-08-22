@@ -13,6 +13,12 @@ local TRACKER_WIDTH_MIN = 296
 local TRACKER_WIDTH_MAX = 600
 local TRACKER_HEIGHT_MIN = 250
 local TRACKER_HEIGHT_MAX = 1200
+local NEMESIS_SPELL_IDS = {
+    [1270179] = true,
+    [1307638] = true,
+}
+local NEMESIS_ACTIVE_CURRENCY_ID = 3103
+local NEMESIS_MAXIMUM_CURRENCY_ID = 3104
 
 BQL.TRACKER_WIDTH_MIN = TRACKER_WIDTH_MIN
 BQL.TRACKER_WIDTH_MAX = TRACKER_WIDTH_MAX
@@ -35,6 +41,26 @@ local function ClampPixelValue(value, fallback, minimum, maximum)
         value = fallback
     end
     return math.max(minimum, math.min(math.floor(value + 0.5), maximum))
+end
+
+-- Addon click and menu handlers run in an insecure execution path. Several
+-- Blizzard actions synchronously rebuild shared UI (most notably WorldMapFrame
+-- pins after opening quest details or changing super-tracking). Calling those
+-- actions directly lets our execution taint become part of the newly-created
+-- Blizzard state, and a later map-pin tooltip then exposes secret widget
+-- measurements to tainted arithmetic. Enter secure Blizzard code through a
+-- securecall boundary instead; never pass an addon wrapper as the callback.
+local function InvokeBlizzardAction(action, ...)
+    if type(action) ~= "function" then
+        return false
+    end
+
+    if type(securecallfunction) == "function" then
+        securecallfunction(action, ...)
+    else
+        action(...)
+    end
+    return true
 end
 
 local WESTERN_FONT_FILES = {
@@ -220,11 +246,220 @@ local function RefreshAfterQuestAction(state)
     end)
 end
 
+-- ObjectiveTrackerPOIButtonTemplate is backed by Blizzard's shared POI mixins.
+-- Calling those mixins from addon code can taint map pins created later by
+-- MapCanvas, including protected mouse-propagation updates. Keep the tracker
+-- icon entirely addon-owned and only reuse Blizzard's texture atlases.
+local POI_ATLASES = {
+    normal = {
+        normal = "UI-QuestPoi-QuestNumber",
+        selected = "UI-QuestPoi-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoi-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoi-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoi-InnerGlow",
+        complete = "UI-QuestIcon-TurnIn-Normal",
+    },
+    campaign = {
+        normal = "UI-QuestPoiCampaign-QuestNumber",
+        selected = "UI-QuestPoiCampaign-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoiCampaign-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoiCampaign-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoiCampaign-InnerGlow",
+        complete = "UI-QuestPoiCampaign-QuestBangTurnIn",
+    },
+    legendary = {
+        normal = "UI-QuestPoiLegendary-QuestNumber",
+        selected = "UI-QuestPoiLegendary-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoiLegendary-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoiLegendary-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoiLegendary-InnerGlow",
+        complete = "UI-QuestPoiLegendary-QuestBangTurnIn",
+    },
+    recurring = {
+        normal = "UI-QuestPoiRecurring-QuestNumber",
+        selected = "UI-QuestPoiRecurring-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoiRecurring-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoiRecurring-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoiRecurring-InnerGlow",
+        complete = "UI-QuestPoiRecurring-QuestBangTurnIn",
+    },
+    important = {
+        normal = "UI-QuestPoiImportant-QuestNumber",
+        selected = "UI-QuestPoiImportant-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoiImportant-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoiImportant-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoiImportant-InnerGlow",
+        complete = "UI-QuestPoiImportant-QuestBangTurnIn",
+    },
+    meta = {
+        normal = "UI-QuestPoiWrapper-QuestNumber",
+        selected = "UI-QuestPoiWrapper-QuestNumber-SuperTracked",
+        pushed = "UI-QuestPoiWrapper-QuestNumber-Pressed",
+        selectedPushed = "UI-QuestPoiWrapper-QuestNumber-Pressed-SuperTracked",
+        highlight = "UI-QuestPoiWrapper-InnerGlow",
+        complete = "UI-QuestPoiWrapper-QuestBangTurnIn",
+    },
+    world = {
+        normal = "worldquest-questmarker-epic",
+        selected = "worldquest-questmarker-epic-supertracked",
+        pushed = "worldquest-questmarker-epic-down",
+        selectedPushed = "worldquest-questmarker-epic-down-supertracked",
+        highlight = "UI-QuestPoi-InnerGlow",
+    },
+    content = {
+        normal = "waypoint-mappin-minimap-untracked",
+        selected = "waypoint-mappin-minimap-tracked",
+        pushed = "waypoint-mappin-minimap-untracked",
+        selectedPushed = "waypoint-mappin-minimap-tracked",
+    },
+}
+
+local function GetQuestPOIAtlasSet(quest)
+    if quest.kind == "content" then
+        return POI_ATLASES.content
+    end
+    if quest.category == "WorldQuestObjectiveTracker"
+        or quest.category == "BonusObjectiveTracker"
+    then
+        return POI_ATLASES.world
+    end
+
+    local classifications = Enum and Enum.QuestClassification
+    local classification = quest.questClassification
+    if classifications then
+        if classification == classifications.Legendary then
+            return POI_ATLASES.legendary
+        elseif classification == classifications.Campaign
+            or classification == classifications.Calling
+        then
+            return POI_ATLASES.campaign
+        elseif classification == classifications.Recurring then
+            return POI_ATLASES.recurring
+        elseif classification == classifications.Important then
+            return POI_ATLASES.important
+        elseif classification == classifications.Meta then
+            return POI_ATLASES.meta
+        end
+    end
+    return POI_ATLASES.normal
+end
+
+local function IsPOIEntrySelected(quest)
+    if quest.kind == "content" then
+        if not C_SuperTrack or not C_SuperTrack.GetSuperTrackedContent then
+            return false
+        end
+        local ok, trackingType, trackingID = pcall(C_SuperTrack.GetSuperTrackedContent)
+        return ok
+            and not IsSecret(trackingType)
+            and not IsSecret(trackingID)
+            and trackingType == quest.trackingType
+            and trackingID == quest.trackingID
+    end
+
+    if not quest.questID or not C_SuperTrack or not C_SuperTrack.GetSuperTrackedQuestID then
+        return false
+    end
+    local ok, questID = pcall(C_SuperTrack.GetSuperTrackedQuestID)
+    return ok and not IsSecret(questID) and questID == quest.questID
+end
+
+local function SetPOITextureAtlas(texture, atlas)
+    texture:Hide()
+    if not atlas then
+        return
+    end
+    local ok = pcall(texture.SetAtlas, texture, atlas, true)
+    if ok then
+        texture:Show()
+    end
+end
+
+local function GetPOIDisplayAtlas(quest, selected, atlases)
+    if quest.kind == "content" then
+        return nil
+    end
+    if quest.readyForTurnIn then
+        return atlases.complete or POI_ATLASES.normal.complete
+    end
+    if quest.category == "BonusObjectiveTracker" then
+        return "Bonus-Objective-Star"
+    end
+    if quest.category == "WorldQuestObjectiveTracker"
+        and quest.questID
+        and C_QuestLog
+        and C_QuestLog.GetQuestTagInfo
+        and QuestUtil
+        and QuestUtil.GetWorldQuestAtlasInfo
+    then
+        local tagOK, tagInfo = pcall(C_QuestLog.GetQuestTagInfo, quest.questID)
+        if tagOK and not IsSecret(tagInfo) and tagInfo then
+            local atlasOK, atlas = pcall(
+                QuestUtil.GetWorldQuestAtlasInfo,
+                quest.questID,
+                tagInfo,
+                false
+            )
+            if atlasOK and not IsSecret(atlas) and type(atlas) == "string" then
+                return atlas
+            end
+        end
+        return "Bonus-Objective-Star"
+    end
+    return selected and "Quest-In-Progress-Icon-Brown"
+        or "Quest-In-Progress-Icon-yellow"
+end
+
+local function UpdatePOIButton(button)
+    local quest = button.entry
+    if not quest then
+        return
+    end
+    local atlases = GetQuestPOIAtlasSet(quest)
+    local selected = IsPOIEntrySelected(quest)
+    SetPOITextureAtlas(button:GetNormalTexture(), selected and atlases.selected or atlases.normal)
+    SetPOITextureAtlas(
+        button:GetPushedTexture(),
+        selected and atlases.selectedPushed or atlases.pushed
+    )
+    SetPOITextureAtlas(button:GetHighlightTexture(), atlases.highlight)
+    SetPOITextureAtlas(button.displayTexture, GetPOIDisplayAtlas(quest, selected, atlases))
+end
+
+local function HandlePOIButtonClick(state, button)
+    local quest = button.entry
+    if not quest then
+        return
+    end
+
+    if quest.kind == "content" then
+        if quest.trackingType
+            and quest.trackingID
+            and C_SuperTrack
+            and C_SuperTrack.SetSuperTrackedContent
+        then
+            InvokeBlizzardAction(
+                C_SuperTrack.SetSuperTrackedContent,
+                quest.trackingType,
+                quest.trackingID
+            )
+        end
+    elseif quest.questID and C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
+        InvokeBlizzardAction(C_SuperTrack.SetSuperTrackedQuestID, quest.questID)
+    end
+
+    if SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON then
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+    end
+    UpdatePOIButton(button)
+    state.addon:RequestCustomRefresh(false)
+end
+
 local function UntrackWorldQuest(state, questID)
     if QuestUtil and QuestUtil.UntrackWorldQuest then
-        QuestUtil.UntrackWorldQuest(questID)
+        InvokeBlizzardAction(QuestUtil.UntrackWorldQuest, questID)
     elseif C_QuestLog and C_QuestLog.RemoveWorldQuestWatch then
-        C_QuestLog.RemoveWorldQuestWatch(questID)
+        InvokeBlizzardAction(C_QuestLog.RemoveWorldQuestWatch, questID)
     end
     RefreshAfterQuestAction(state)
 end
@@ -270,7 +505,12 @@ local function StopContentTracking(state, entry)
         and Enum.ContentTrackingStopType
         and Enum.ContentTrackingStopType.Manual
     if C_ContentTracking and C_ContentTracking.StopTracking and stopType then
-        C_ContentTracking.StopTracking(entry.trackingType, entry.trackingID, stopType)
+        InvokeBlizzardAction(
+            C_ContentTracking.StopTracking,
+            entry.trackingType,
+            entry.trackingID,
+            stopType
+        )
         RefreshAfterQuestAction(state)
     end
 end
@@ -434,7 +674,11 @@ local function HandleTrackingEntryLeftClick(state, entry)
         then
             ProfessionsUtil.OpenProfessionFrameToRecipe(entry.targetID)
         elseif ContentTrackingUtil and ContentTrackingUtil.OpenMapToTrackable then
-            ContentTrackingUtil.OpenMapToTrackable(entry.trackingType, entry.trackingID)
+            InvokeBlizzardAction(
+                ContentTrackingUtil.OpenMapToTrackable,
+                entry.trackingType,
+                entry.trackingID
+            )
         end
     end
 end
@@ -487,12 +731,12 @@ local function ShowQuestContextMenu(state, row)
         end
         if superTrackedQuestID ~= questID then
             rootDescription:CreateButton(_G.SUPER_TRACK_QUEST or "Focus quest", function()
-                C_SuperTrack.SetSuperTrackedQuestID(questID)
+                InvokeBlizzardAction(C_SuperTrack.SetSuperTrackedQuestID, questID)
                 state.addon:RequestCustomRefresh(false)
             end)
         else
             rootDescription:CreateButton(_G.STOP_SUPER_TRACK_QUEST or "Stop focusing quest", function()
-                C_SuperTrack.SetSuperTrackedQuestID(0)
+                InvokeBlizzardAction(C_SuperTrack.SetSuperTrackedQuestID, 0)
                 state.addon:RequestCustomRefresh(false)
             end)
         end
@@ -505,19 +749,19 @@ local function ShowQuestContextMenu(state, row)
                 or _G.OBJECTIVES_VIEW_IN_QUESTLOG
                 or "View quest details"
             rootDescription:CreateButton(detailsLabel, function()
-                QuestUtil.OpenQuestDetails(questID)
+                InvokeBlizzardAction(QuestUtil.OpenQuestDetails, questID)
             end)
         end
 
         if QuestMapFrame_OpenToQuestDetails then
             rootDescription:CreateButton(_G.OBJECTIVES_SHOW_QUEST_MAP or "Show on map", function()
-                QuestMapFrame_OpenToQuestDetails(questID)
+                InvokeBlizzardAction(QuestMapFrame_OpenToQuestDetails, questID)
             end)
         end
 
         if row.canUntrack then
             rootDescription:CreateButton(_G.OBJECTIVES_STOP_TRACKING or "Stop tracking", function()
-                C_QuestLog.RemoveQuestWatch(questID)
+                InvokeBlizzardAction(C_QuestLog.RemoveQuestWatch, questID)
                 RefreshAfterQuestAction(state)
             end)
         end
@@ -529,13 +773,13 @@ local function ShowQuestContextMenu(state, row)
         end
         if isPushable and IsInGroup() and QuestUtil and QuestUtil.ShareQuest then
             rootDescription:CreateButton(_G.SHARE_QUEST or "Share quest", function()
-                QuestUtil.ShareQuest(questID)
+                InvokeBlizzardAction(QuestUtil.ShareQuest, questID)
             end)
         end
 
         if QuestMapQuestOptions_AbandonQuest then
             rootDescription:CreateButton(_G.ABANDON_QUEST_ABBREV or "Abandon quest", function()
-                QuestMapQuestOptions_AbandonQuest(questID)
+                InvokeBlizzardAction(QuestMapQuestOptions_AbandonQuest, questID)
             end)
         end
 
@@ -559,7 +803,24 @@ local function CreateRow(state)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(10, 10)
 
-    row.poiButton = CreateFrame("Button", nil, row, "ObjectiveTrackerPOIButtonTemplate")
+    row.poiButton = CreateFrame("Button", nil, row)
+    row.poiButton:SetSize(32, 32)
+    row.poiButton:RegisterForClicks("LeftButtonUp")
+    local poiNormal = row.poiButton:CreateTexture(nil, "ARTWORK")
+    poiNormal:SetPoint("CENTER")
+    row.poiButton:SetNormalTexture(poiNormal)
+    local poiPushed = row.poiButton:CreateTexture(nil, "ARTWORK")
+    poiPushed:SetPoint("CENTER", 0, -1)
+    row.poiButton:SetPushedTexture(poiPushed)
+    local poiHighlight = row.poiButton:CreateTexture(nil, "HIGHLIGHT")
+    poiHighlight:SetPoint("CENTER")
+    poiHighlight:SetBlendMode("ADD")
+    row.poiButton:SetHighlightTexture(poiHighlight)
+    row.poiButton.displayTexture = row.poiButton:CreateTexture(nil, "OVERLAY")
+    row.poiButton.displayTexture:SetPoint("CENTER")
+    row.poiButton:SetScript("OnClick", function(button)
+        HandlePOIButtonClick(state, button)
+    end)
     row.poiButton:Hide()
 
     row.itemButton = CreateFrame("Button", nil, row, "QuestObjectiveItemButtonTemplate")
@@ -663,7 +924,9 @@ local function CreateRow(state)
     row.timer:Hide()
 
     row:SetScript("OnEnter", function(self)
-        if self.questID or (self.entry and self.entry.kind) then
+        if self.categoryHeader then
+            self.highlight:Show()
+        elseif self.questID or (self.entry and self.entry.kind) then
             self.highlight:Show()
             local tooltip = state.addon:GetTooltip()
             tooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -678,10 +941,7 @@ local function CreateRow(state)
                 true
             )
             tooltip:AddLine(state.addon.text.questUntrackHint, 0.8, 0.8, 0.8, true)
-            if self.questID and IsInGroup() and tooltip.SetQuestPartyProgress then
-                tooltip:SetQuestPartyProgress(self.questID)
-            end
-            tooltip:Show()
+            tooltip:ShowTooltip()
         end
     end)
     row:SetScript("OnLeave", function(self)
@@ -689,6 +949,13 @@ local function CreateRow(state)
         state.addon:HideTooltip()
     end)
     row:SetScript("OnClick", function(self, button)
+        if self.categoryHeader then
+            if button == "LeftButton" then
+                state.addon:ToggleCategoryCollapsed(self.categoryHeader)
+            end
+            return
+        end
+
         local questID = self.questID
         local entry = self.entry
         if not questID and not (entry and entry.kind) then
@@ -734,26 +1001,26 @@ local function CreateRow(state)
 
         if entry and entry.isAutoQuestPopup then
             if entry.popupType == "OFFER" and ShowQuestOffer then
-                ShowQuestOffer(questID)
+                InvokeBlizzardAction(ShowQuestOffer, questID)
             elseif ShowQuestComplete then
-                ShowQuestComplete(questID)
+                InvokeBlizzardAction(ShowQuestComplete, questID)
             end
             if RemoveAutoQuestPopUp then
-                RemoveAutoQuestPopUp(questID)
+                InvokeBlizzardAction(RemoveAutoQuestPopUp, questID)
             end
             state.addon:RequestCustomRefresh(true)
             return
         end
 
         if entry and entry.isAutoComplete and entry.readyForTurnIn and ShowQuestComplete then
-            ShowQuestComplete(questID)
+            InvokeBlizzardAction(ShowQuestComplete, questID)
             return
         end
 
         if QuestMapFrame_OpenToQuestDetails then
-            QuestMapFrame_OpenToQuestDetails(questID)
+            InvokeBlizzardAction(QuestMapFrame_OpenToQuestDetails, questID)
         elseif QuestUtil and QuestUtil.OpenQuestDetails then
-            QuestUtil.OpenQuestDetails(questID)
+            InvokeBlizzardAction(QuestUtil.OpenQuestDetails, questID)
         end
     end)
     return row
@@ -772,9 +1039,8 @@ local function AcquireRow(state)
     row.icon:ClearAllPoints()
     row.poiButton:Hide()
     row.poiButton:ClearAllPoints()
-    if row.poiButton.Reset then
-        row.poiButton:Reset()
-    end
+    row.poiButton.entry = nil
+    row.poiButton.displayTexture:Hide()
     row.itemButton:Hide()
     row.itemButton:ClearAllPoints()
     row.findGroupButton:Hide()
@@ -808,8 +1074,10 @@ local function AcquireRow(state)
     row.questID = nil
     row.entry = nil
     row.questTitle = nil
+    row.categoryHeader = nil
     row.category = nil
     row.canUntrack = false
+    row.icon:SetSize(10, 10)
     row:SetWidth(math.max(state.content:GetWidth(), 1))
     row:Show()
     return row
@@ -831,24 +1099,182 @@ end
 
 local function AddCategoryRow(state, category, label)
     local row = AcquireRow(state)
-    row:EnableMouse(false)
+    local isCollapsed = state.addon:IsCategoryCollapsed(category)
+    row:EnableMouse(not state.editModeActive)
+    row.categoryHeader = category
     ApplySelectedFont(state.addon, row.text, "ObjectiveTrackerHeaderFont")
     row.text:SetMaxLines(1)
     row.text:SetHeight(CATEGORY_HEIGHT)
     row.text:SetText(label or state.addon:GetModuleLabel(category))
     row.text:SetTextColor(1, 0.82, 0)
+    row.icon:SetAtlas(isCollapsed and "questlog-icon-expand" or "questlog-icon-shrink", false)
+    row.icon:SetSize(16, 16)
+    row.icon:SetPoint("RIGHT", row, "RIGHT", -7, 0)
+    row.icon:Show()
     local textOffset = GetSafeNumber(state.addon.db.categoryTextOffset, 0)
     if state.addon.db.categoryStyle == "blizzard" then
         local textureOffset = GetSafeNumber(state.addon.db.categoryOffset, 0)
         row.categoryBG:SetPoint("CENTER", row, "CENTER", 0, textureOffset)
         row.categoryBG:Show()
         row.text:SetPoint("LEFT", row.categoryBG, "LEFT", 7 + textOffset, -textureOffset)
-        row.text:SetPoint("RIGHT", row.categoryBG, "RIGHT", -28 + textOffset, -textureOffset)
+        row.text:SetPoint("RIGHT", row.icon, "LEFT", -3, -textureOffset)
     else
         row.text:SetPoint("LEFT", row, "LEFT", 5 + textOffset, 0)
-        row.text:SetPoint("RIGHT", row, "RIGHT", -5 + textOffset, 0)
+        row.text:SetPoint("RIGHT", row.icon, "LEFT", -3, 0)
     end
     PlaceRow(state, row, CATEGORY_HEIGHT)
+end
+
+-- UIWidgetContainerMixin:RegisterForWidgetSet normally registers every
+-- container in the global UIWidgetManager and ProcessWidget mutates its shared
+-- processingUnit. Calling those paths from addon code permanently taints the
+-- manager; a later Blizzard-only map tooltip can then fail when its widget
+-- measures secret text. These instance-local implementations retain the
+-- native widget templates without writing to either shared manager field.
+local function ProcessIsolatedWidget(widgetContainer, widgetID, widgetType)
+    local widgetTypeInfo = UIWidgetManager and UIWidgetManager:GetWidgetTypeInfo(widgetType)
+    if not widgetTypeInfo then
+        return
+    end
+
+    local widgetInfo = widgetTypeInfo.visInfoDataFunction(widgetID)
+    local widgetFrame = widgetContainer.widgetFrames[widgetID]
+    local widgetAlreadyExisted = widgetFrame ~= nil
+
+    if widgetAlreadyExisted and widgetFrame.widgetType ~= widgetType then
+        widgetContainer:RemoveWidget(widgetID)
+        widgetAlreadyExisted = false
+    end
+
+    local oldOrderIndex
+    local oldLayoutDirection
+    local isNewWidget = false
+    if widgetAlreadyExisted then
+        if not widgetInfo then
+            widgetFrame:AnimOut()
+            widgetFrame.markedForRemove = nil
+            return
+        end
+        oldOrderIndex = widgetFrame.orderIndex
+        oldLayoutDirection = widgetFrame.layoutDirection
+        widgetFrame.markedForRemove = nil
+    else
+        if not widgetInfo then
+            return
+        end
+        widgetFrame = widgetContainer:CreateWidget(
+            widgetID,
+            widgetType,
+            widgetTypeInfo,
+            widgetInfo
+        )
+        isNewWidget = true
+    end
+
+    local setupInfo = widgetInfo
+    local statusBarType = Enum
+        and Enum.UIWidgetVisualizationType
+        and Enum.UIWidgetVisualizationType.StatusBar
+    if widgetContainer.bqlUseNeutralStatusBarFrame
+        and statusBarType
+        and widgetType == statusBarType
+    then
+        -- Some objective-tracker events use a themed status-bar border whose
+        -- right cap is an empty circular socket. StatusBar widget data has no
+        -- icon field, so the missing artwork cannot be restored from the API.
+        -- Keep Blizzard's native widget and values, but use its neutral frame
+        -- kit for this container. A proxy avoids mutating Blizzard's data table
+        -- (which can contain protected values during combat).
+        setupInfo = setmetatable({
+            frameTextureKit = "widgetstatusbar",
+        }, {
+            __index = widgetInfo,
+        })
+        widgetFrame.bqlNeutralStatusBarFrame = true
+    else
+        widgetFrame.bqlNeutralStatusBarFrame = nil
+    end
+
+    widgetFrame:Setup(setupInfo, widgetContainer)
+    if isNewWidget then
+        widgetFrame:ApplyEffects(widgetInfo)
+    end
+    if isNewWidget and widgetFrame.OnAcquired then
+        widgetFrame:OnAcquired(widgetInfo)
+    end
+
+    if oldOrderIndex ~= widgetFrame.orderIndex
+        or oldLayoutDirection ~= widgetFrame.layoutDirection
+    then
+        widgetContainer:MarkDirtyLayout()
+    end
+end
+
+local function UnregisterIsolatedWidgetSet(widgetContainer)
+    if not widgetContainer.widgetSetID then
+        return
+    end
+
+    widgetContainer:RemoveAllWidgets()
+    widgetContainer:UpdateWidgetLayout()
+    widgetContainer.widgetSetID = nil
+    widgetContainer.layoutFunc = nil
+    widgetContainer.initFunc = nil
+    widgetContainer.dirtyLayout = nil
+    if widgetContainer.showAndHideOnWidgetSetRegistration then
+        widgetContainer:Hide()
+    end
+    widgetContainer:SetAttachedUnitAndType(nil)
+    widgetContainer:UnregisterEvent("UPDATE_ALL_UI_WIDGETS")
+    widgetContainer:UnregisterEvent("UPDATE_UI_WIDGET")
+end
+
+local function RegisterIsolatedWidgetSet(
+    widgetContainer,
+    widgetSetID,
+    widgetLayoutFunction,
+    widgetInitFunction
+)
+    if widgetContainer.widgetSetID then
+        if widgetContainer.widgetSetID == widgetSetID then
+            return
+        end
+        widgetContainer:UnregisterForWidgetSet()
+    end
+    if not widgetSetID then
+        return
+    end
+
+    local widgetSetInfo = C_UIWidgetManager.GetWidgetSetInfo(widgetSetID)
+    if not widgetSetInfo then
+        return
+    end
+
+    widgetContainer.widgetSetID = widgetSetID
+    widgetContainer.layoutFunc = widgetLayoutFunction or DefaultWidgetLayout
+    widgetContainer.initFunc = widgetInitFunction
+    widgetContainer.widgetFrames = {}
+    widgetContainer.timerWidgets = {}
+    widgetContainer.numTimers = 0
+    widgetContainer.numWidgetsShowing = 0
+    widgetContainer:SetAttachedUnitAndType(nil)
+    widgetContainer.widgetSetLayoutDirection = widgetContainer.forceWidgetSetLayoutDirection
+        or widgetSetInfo.layoutDirection
+    widgetContainer.verticalAnchorYOffset = widgetSetInfo.verticalPadding
+
+    widgetContainer:ProcessAllWidgets()
+    if widgetContainer.showAndHideOnWidgetSetRegistration then
+        widgetContainer:Show()
+    end
+    widgetContainer:RegisterEvent("UPDATE_ALL_UI_WIDGETS")
+    widgetContainer:RegisterEvent("UPDATE_UI_WIDGET")
+end
+
+local function IsolateWidgetContainer(widgetContainer)
+    widgetContainer.ProcessWidget = ProcessIsolatedWidget
+    widgetContainer.RegisterForWidgetSet = RegisterIsolatedWidgetSet
+    widgetContainer.UnregisterForWidgetSet = UnregisterIsolatedWidgetSet
+    widgetContainer.bqlIsolated = true
 end
 
 local function LayoutScenarioWidgets(widgetContainer, widgets)
@@ -890,8 +1316,108 @@ local function LayoutScenarioWidgets(widgetContainer, widgets)
     end
 end
 
+local function GetCurrencyQuantity(currencyID)
+    if not C_CurrencyInfo or type(C_CurrencyInfo.GetCurrencyInfo) ~= "function" then
+        return nil
+    end
+
+    local ok, quantity = pcall(function()
+        local info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+        return info and info.quantity
+    end)
+    if not ok or IsSecret(quantity) or type(quantity) ~= "number" then
+        return nil
+    end
+    return quantity
+end
+
+local function UpdateScenarioNemesisCounter(widgetContainer)
+    widgetContainer.bqlNemesisCurrent = nil
+    widgetContainer.bqlNemesisMaximum = nil
+    widgetContainer.bqlNemesisSpellID = nil
+
+    local targetSpellFrame
+    local targetSpellID
+    for _, widget in pairs(widgetContainer.widgetFrames or {}) do
+        if widget.spellPool then
+            for spellFrame in widget.spellPool:EnumerateActive() do
+                if spellFrame.bqlNemesisCounter then
+                    spellFrame.bqlNemesisCounter:Hide()
+                end
+                local ok, spellID = pcall(function()
+                    return spellFrame.spellInfo and spellFrame.spellInfo.spellID
+                end)
+                if ok
+                    and not IsSecret(spellID)
+                    and NEMESIS_SPELL_IDS[spellID]
+                then
+                    targetSpellFrame = spellFrame
+                    targetSpellID = spellID
+                end
+            end
+        end
+    end
+
+    local current = GetCurrencyQuantity(NEMESIS_ACTIVE_CURRENCY_ID)
+    local maximum = GetCurrencyQuantity(NEMESIS_MAXIMUM_CURRENCY_ID)
+    widgetContainer.bqlNemesisCurrent = current
+    widgetContainer.bqlNemesisMaximum = maximum
+    widgetContainer.bqlNemesisSpellID = targetSpellID
+    if not targetSpellFrame or not current or not maximum or maximum <= 0 then
+        return
+    end
+
+    local counter = targetSpellFrame.bqlNemesisCounter
+    if not counter then
+        counter = CreateFrame("Frame", nil, targetSpellFrame, "BackdropTemplate")
+        counter:SetSize(30, 24)
+        counter:SetPoint("TOP", targetSpellFrame, "BOTTOM", 0, 0)
+        counter:SetFrameLevel(targetSpellFrame:GetFrameLevel() + 5)
+        counter:EnableMouse(false)
+
+        local usePlumberArt = C_AddOns
+            and type(C_AddOns.IsAddOnLoaded) == "function"
+            and C_AddOns.IsAddOnLoaded("Plumber")
+        if usePlumberArt then
+            -- Plumber still owns this artwork; reuse it only while Plumber is
+            -- loaded. The fallback below keeps BetterQuestList standalone.
+            local background = counter:CreateTexture(nil, "BORDER")
+            background:SetAllPoints(counter)
+            background:SetTexture("Interface\\AddOns\\Plumber\\Art\\Delves\\Delves-Scenario")
+            background:SetTexCoord(0, 60 / 256, 0, 48 / 256)
+            counter.Background = background
+        else
+            counter:SetBackdrop({
+                bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                tile = false,
+                edgeSize = 9,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            })
+            counter:SetBackdropColor(0.035, 0.025, 0.015, 0.94)
+            counter:SetBackdropBorderColor(0.72, 0.56, 0.27, 0.95)
+        end
+
+        local text = counter:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        text:SetPoint("CENTER", counter, "CENTER", 0, 0)
+        text:SetJustifyH("CENTER")
+        counter.Text = text
+        targetSpellFrame.bqlNemesisCounter = counter
+    end
+    if current <= 0 then
+        counter.Text:SetText("|cff20ff20\226\156\147|r")
+    else
+        counter.Text:SetText(current)
+    end
+    counter:Show()
+end
+
 local function LayoutObjectiveWidgets(widgetContainer, widgets)
-    DefaultWidgetLayout(widgetContainer, widgets)
+    if type(securecallfunction) == "function" then
+        securecallfunction(DefaultWidgetLayout, widgetContainer, widgets)
+    else
+        DefaultWidgetLayout(widgetContainer, widgets)
+    end
     local state = widgetContainer.bqlState
     if state then
         C_Timer.After(0, function()
@@ -899,6 +1425,74 @@ local function LayoutObjectiveWidgets(widgetContainer, widgets)
                 state.addon:RequestCustomRefresh(true)
             end
         end)
+    end
+end
+
+local function GetTrackedEntryKey(entry)
+    if type(entry) ~= "table" or entry.isEnhanceQoLDamageMeter then
+        return nil
+    end
+    if entry.isEnhanceQoLMythicPlusTimer then
+        return "enhanceqol:mythic-plus-timer"
+    end
+    if type(entry.questID) == "number" then
+        return "quest:" .. entry.questID
+    end
+    if type(entry.trackingID) == "number" then
+        return (entry.kind or "tracked") .. ":" .. entry.trackingID
+            .. (entry.isRecraft and ":recraft" or "")
+    end
+    if type(entry.scenarioID) == "number" then
+        return "scenario:" .. entry.scenarioID
+    end
+    if entry.isObjectiveWidget then
+        return "widgets"
+    end
+    return nil
+end
+
+local function IsExternalFrameEntry(entry)
+    return entry
+        and (entry.isEnhanceQoLDamageMeter or entry.isEnhanceQoLMythicPlusTimer)
+end
+
+local function AutoExpandNewTrackedCategories(addon, previousSnapshot, snapshot)
+    if not previousSnapshot or not snapshot or type(snapshot.categories) ~= "table" then
+        return
+    end
+
+    for category, entries in pairs(snapshot.categories) do
+        if addon:IsCategoryCollapsed(category) and type(entries) == "table" then
+            local previousEntries = previousSnapshot.categories
+                and previousSnapshot.categories[category]
+                or {}
+            local previousKeys = {}
+            local previousTrackableCount = 0
+            for _, entry in ipairs(previousEntries) do
+                local key = GetTrackedEntryKey(entry)
+                if key then
+                    previousKeys[key] = true
+                    previousTrackableCount = previousTrackableCount + 1
+                end
+            end
+
+            local trackableCount = 0
+            local hasNewEntry = false
+            for _, entry in ipairs(entries) do
+                local key = GetTrackedEntryKey(entry)
+                if key then
+                    trackableCount = trackableCount + 1
+                    if not previousKeys[key] then
+                        hasNewEntry = true
+                        break
+                    end
+                end
+            end
+
+            if hasNewEntry or trackableCount > previousTrackableCount then
+                addon:ExpandCategory(category, false)
+            end
+        end
     end
 end
 
@@ -987,6 +1581,7 @@ local function AddScenarioCard(state, scenario)
         RefreshScenarioWidgetData(state, widgetContainer)
         widgetContainer:Show()
         widgetContainer:UpdateWidgetLayout()
+        UpdateScenarioNemesisCounter(widgetContainer)
         state.scenarioWidgetUsed = true
         state.scenarioWidgetRow = row
 
@@ -1172,24 +1767,6 @@ local function AddQuestTitleRow(state, quest)
     row.category = quest.category
     row.canUntrack = quest.questID ~= nil and CanUntrackCategory(quest.category)
 
-    if quest.kind == "content"
-        and quest.trackingType
-        and quest.trackingID
-        and POIButtonUtil
-        and POIButtonUtil.Style
-        and row.poiButton.SetTrackable
-    then
-        row.poiButton:SetTrackable(quest.trackingType, quest.trackingID)
-        row.poiButton:SetStyle(POIButtonUtil.Style.ContentTracking)
-        if row.poiButton.UpdateSelected then
-            row.poiButton:UpdateSelected()
-        end
-        row.poiButton:UpdateButtonStyle()
-        row.poiButton:SetPoint("TOPRIGHT", row.text, "TOPLEFT", -7, 5)
-        row.poiButton:EnableMouse(not state.editModeActive)
-        row.poiButton:Show()
-    end
-
     local showQuestPOI = quest.category == "WorldQuestObjectiveTracker"
         or quest.category == "BonusObjectiveTracker"
         or type(GetCVarBool) ~= "function"
@@ -1200,31 +1777,12 @@ local function AddQuestTitleRow(state, quest)
             showQuestPOI = false
         end
     end
-    if quest.questID and showQuestPOI and POIButtonUtil and POIButtonUtil.Style then
-        local style
-        if quest.category == "WorldQuestObjectiveTracker" then
-            style = POIButtonUtil.Style.WorldQuest
-        elseif quest.category == "BonusObjectiveTracker" then
-            style = POIButtonUtil.Style.BonusObjective
-        elseif quest.readyForTurnIn then
-            style = POIButtonUtil.Style.QuestComplete
-        else
-            style = POIButtonUtil.Style.QuestInProgress
-        end
-
-        local superTrackedQuestID
-        if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
-            superTrackedQuestID = C_SuperTrack.GetSuperTrackedQuestID()
-            if IsSecret(superTrackedQuestID) then
-                superTrackedQuestID = nil
-            end
-        end
-
-        row.poiButton:SetQuestID(quest.questID)
-        row.poiButton:SetStyle(style)
-        row.poiButton:SetSelected(superTrackedQuestID == quest.questID)
-        row.poiButton:SetPingWorldMap(quest.category == "WorldQuestObjectiveTracker")
-        row.poiButton:UpdateButtonStyle()
+    local showContentPOI = quest.kind == "content"
+        and quest.trackingType ~= nil
+        and quest.trackingID ~= nil
+    if showContentPOI or (quest.questID and showQuestPOI) then
+        row.poiButton.entry = quest
+        UpdatePOIButton(row.poiButton)
         row.poiButton:SetPoint("TOPRIGHT", row.text, "TOPLEFT", -7, 5)
         row.poiButton:EnableMouse(not state.editModeActive)
         row.poiButton:Show()
@@ -1285,7 +1843,10 @@ local function AddObjectiveRow(state, quest, objective)
 
     local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
     local rowHeight = math.max(MIN_ROW_HEIGHT, textHeight + 5)
-    if type(objective.progress) == "number" then
+    -- Completed weighted objectives keep their descriptive text, but no longer
+    -- need a full 100% bar. This also covers a completed progress stage inside
+    -- a quest or scenario that still has later objectives to display.
+    if type(objective.progress) == "number" and not objective.finished then
         local progress = math.max(0, math.min(objective.progress, 100))
         if quest.isScenario and row.scenarioProgress and row.scenarioProgress.Bar then
             local scenarioProgress = row.scenarioProgress
@@ -1345,6 +1906,32 @@ local function AddEnhanceQoLDamageMeterRow(state, entry)
     local rowScale = math.max(GetSafeNumber(row:GetEffectiveScale(), 1), 0.01)
     local height = math.max(GetSafeNumber(frame:GetHeight(), 60) * (frameScale / rowScale), 60)
     PlaceRow(state, row, height)
+    return true
+end
+
+local function AddEnhanceQoLMythicPlusTimerRow(state)
+    local addon = state.addon
+    local frame = addon:GetEnhanceQoLMythicPlusTimerFrame()
+    if not frame or not frame:IsShown() then
+        return false
+    end
+
+    local row = AcquireRow(state)
+    row:EnableMouse(false)
+    row.text:Hide()
+    row.icon:Hide()
+    frame = addon:AttachEnhanceQoLMythicPlusTimerFrame(row)
+    if not frame then
+        row:Hide()
+        return false
+    end
+
+    state.enhanceQoLMythicPlusTimerRow = row
+    state.enhanceQoLMythicPlusTimerFrame = frame
+    local automaticHeight = addon:MaintainEnhanceQoLMythicPlusTimerFrame() or 80
+    local height = addon:GetEnhanceQoLMythicPlusTimerRowHeight(automaticHeight)
+    PlaceRow(state, row, height)
+    addon:MaintainEnhanceQoLMythicPlusTimerFrame()
     return true
 end
 
@@ -1501,9 +2088,10 @@ function BQL:CollectCustomDebugInfo()
     if state.snapshot and state.snapshot.categories then
         for _, category in ipairs(self:ReconcileOrder()) do
             local entries = state.snapshot.categories[category]
-            lines[#lines + 1] = ("category %s=%s"):format(
+            lines[#lines + 1] = ("category %s=%s collapsed=%s"):format(
                 category,
-                DebugValue(entries and #entries or 0)
+                DebugValue(entries and #entries or 0),
+                DebugValue(self:IsCategoryCollapsed(category))
             )
         end
 
@@ -1512,14 +2100,23 @@ function BQL:CollectCustomDebugInfo()
         for _, category in ipairs(self:ReconcileOrder()) do
             for entryIndex, entry in ipairs(state.snapshot.categories[category] or {}) do
                 if not entry.isEnhanceQoLDamageMeter then
-                    lines[#lines + 1] = ("entry category=%s index=%s questID=%s title=%s complete=%s ready=%s"):format(
+                    lines[#lines + 1] = ("entry category=%s index=%s questID=%s title=%s complete=%s ready=%s completionMode=%s"):format(
                         category,
                         DebugValue(entryIndex),
                         DebugValue(entry.questID),
                         DebugValue(entry.title),
                         DebugValue(entry.isComplete),
-                        DebugValue(entry.readyForTurnIn)
+                        DebugValue(entry.readyForTurnIn),
+                        DebugValue(entry.completionMode)
                     )
+                    if entry.isComplete then
+                        lines[#lines + 1] = ("  completion rawCount=%s rawType=%s completionText=%s rawText=%s"):format(
+                            DebugValue(entry.rawCompletionObjectiveCount),
+                            DebugValue(entry.rawCompletionObjectiveType),
+                            DebugValue(entry.rawCompletionText),
+                            DebugValue(entry.rawCompletionObjectiveText)
+                        )
+                    end
                     for objectiveIndex, objective in ipairs(entry.objectives or {}) do
                         lines[#lines + 1] = ("  objective index=%s type=%s finished=%s progress=%s text=%s"):format(
                             DebugValue(objectiveIndex),
@@ -1553,6 +2150,14 @@ function BQL:CollectCustomDebugInfo()
             DebugValue(objective.totalQuantity),
             DebugValue(objective.progress),
             DebugValue(objective.text)
+        )
+    end
+    for spellIndex, spellInfo in ipairs(scenario and scenario.scenarioSpells or {}) do
+        lines[#lines + 1] = ("scenarioSpell[%s] spellID=%s name=%s icon=%s"):format(
+            DebugValue(spellIndex),
+            DebugValue(spellInfo.spellID),
+            DebugValue(spellInfo.spellName),
+            DebugValue(spellInfo.spellIcon)
         )
     end
 
@@ -1594,6 +2199,57 @@ function BQL:CollectCustomDebugInfo()
     DescribeDebugRegion(lines, "ScenarioRow", state.scenarioWidgetRow)
     DescribeDebugRegion(lines, "FallbackScenarioWidgetContainer", state.scenarioWidgetContainer)
     DescribeDebugRegion(lines, "ObjectiveWidgetContainer", state.objectiveWidgetContainer)
+    if state.objectiveWidgetContainer and state.objectiveWidgetContainer.widgetFrames then
+        for widgetID, widget in pairs(state.objectiveWidgetContainer.widgetFrames) do
+            lines[#lines + 1] = ("objectiveWidget id=%s type=%s frameTextureKit=%s neutralFrame=%s"):format(
+                DebugValue(widgetID),
+                DebugValue(widget and widget.widgetType),
+                DebugValue(widget and widget.frameTextureKit),
+                DebugValue(widget and widget.bqlNeutralStatusBarFrame)
+            )
+            DescribeDebugRegion(lines, ("ObjectiveWidget[%s]"):format(DebugValue(widgetID)), widget)
+        end
+    end
+    local mythicTimerIntegration = self.enhanceQoLMythicPlusTimerIntegration
+    local mythicTimerRecord = mythicTimerIntegration and mythicTimerIntegration.record
+    local enhanceQoL = _G.EnhanceQoL
+    local mythicTimer = enhanceQoL
+        and enhanceQoL.MythicPlus
+        and enhanceQoL.MythicPlus.MythicPlusTimer
+    local mythicTimerState = mythicTimer and mythicTimer.lastState
+    local mythicTimerLayout
+    if mythicTimer and type(mythicTimer.GetLayoutMode) == "function" then
+        local ok, value = pcall(mythicTimer.GetLayoutMode, mythicTimer)
+        if ok and not IsSecret(value) then
+            mythicTimerLayout = value
+        end
+    end
+    lines[#lines + 1] = ("enhanceQoLMythicPlusTimer active=%s completed=%s layout=%s embedded=%s configuredHeight=%s"):format(
+        DebugValue(self.IsEnhanceQoLMythicPlusTimerActive
+            and self:IsEnhanceQoLMythicPlusTimerActive()),
+        DebugValue(mythicTimerState and mythicTimerState.completed),
+        DebugValue(mythicTimerLayout),
+        DebugValue(mythicTimerRecord and mythicTimerRecord.embedded),
+        DebugValue(self.db.enhanceQoLMythicPlusTimerHeight)
+    )
+    DescribeDebugRegion(lines, "MythicPlusTimerRow", state.enhanceQoLMythicPlusTimerRow)
+    DescribeDebugRegion(lines, "MythicPlusTimerFrame",
+        mythicTimerRecord and mythicTimerRecord.frame
+            or state.enhanceQoLMythicPlusTimerFrame)
+    local mythicTimerVisualBounds
+    if mythicTimerRecord
+        and mythicTimerRecord.timer
+        and type(mythicTimerRecord.timer.GetStyleTarget) == "function"
+    then
+        local ok, value = pcall(
+            mythicTimerRecord.timer.GetStyleTarget,
+            mythicTimerRecord.timer
+        )
+        if ok then
+            mythicTimerVisualBounds = value
+        end
+    end
+    DescribeDebugRegion(lines, "MythicPlusTimerVisualBounds", mythicTimerVisualBounds)
     lines[#lines + 1] = ("enhanceQoLDamageMeter availableWindows=%s"):format(
         DebugValue(self.GetEnhanceQoLDamageMeterWindowCount
             and self:GetEnhanceQoLDamageMeterWindowCount()
@@ -1615,10 +2271,11 @@ function BQL:CollectCustomDebugInfo()
     end
 
     local container = state.scenarioWidgetContainer
-    lines[#lines + 1] = ("container widgetSetID=%s setDirection=%s layoutIsCustom=%s widgetCount=%s"):format(
+    lines[#lines + 1] = ("container widgetSetID=%s setDirection=%s layoutIsCustom=%s isolated=%s widgetCount=%s"):format(
         DebugValue(container and container.widgetSetID),
         DebugValue(container and container.widgetSetLayoutDirection),
         DebugValue(container and container.layoutFunc == LayoutScenarioWidgets),
+        DebugValue(container and container.bqlIsolated),
         DebugValue(container and container.GetNumWidgetsShowing and container:GetNumWidgetsShowing())
     )
     lines[#lines + 1] = ("fallbackWidgetRefresh pending=%s reason=%s time=%s succeeded=%s removed=%s"):format(
@@ -1660,12 +2317,14 @@ function BQL:CollectCustomDebugInfo()
                 local spellIndex = 0
                 for spellFrame in widget.spellPool:EnumerateActive() do
                     spellIndex = spellIndex + 1
-                    local okStack, stackDisplay = pcall(function()
-                        return spellFrame.spellInfo and spellFrame.spellInfo.stackDisplay
+                    local okSpell, spellID, stackDisplay = pcall(function()
+                        return spellFrame.spellInfo and spellFrame.spellInfo.spellID,
+                            spellFrame.spellInfo and spellFrame.spellInfo.stackDisplay
                     end)
-                    lines[#lines + 1] = ("SpellFrame%d stackDisplay=%s"):format(
+                    lines[#lines + 1] = ("SpellFrame%d spellID=%s stackDisplay=%s"):format(
                         spellIndex,
-                        okStack and DebugValue(stackDisplay) or "<error>"
+                        okSpell and DebugValue(spellID) or "<error>",
+                        okSpell and DebugValue(stackDisplay) or "<error>"
                     )
                     DescribeDebugRegion(lines, ("SpellFrame%d"):format(spellIndex), spellFrame)
                     DescribeDebugRegion(lines, ("SpellFrame%d.Icon"):format(spellIndex), spellFrame.Icon)
@@ -1688,6 +2347,26 @@ function BQL:CollectCustomDebugInfo()
         end
     end
 
+    lines[#lines + 1] = ("nemesisCounter spellID=%s current=%s maximum=%s"):format(
+        DebugValue(container and container.bqlNemesisSpellID),
+        DebugValue(container and container.bqlNemesisCurrent),
+        DebugValue(container and container.bqlNemesisMaximum)
+    )
+
+    local activeQuestItem = self.activeQuestItem
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = ("activeQuestItem enabled=%s pending=%s editMode=%s kind=%s questID=%s item=%s spellID=%s"):format(
+        DebugValue(self.db and self.db.activeQuestItemEnabled),
+        DebugValue(activeQuestItem and activeQuestItem.pendingUpdate),
+        DebugValue(activeQuestItem and activeQuestItem.editModeActive),
+        DebugValue(activeQuestItem and activeQuestItem.currentActionKind),
+        DebugValue(activeQuestItem and activeQuestItem.currentQuestID),
+        DebugValue(activeQuestItem and activeQuestItem.currentItemLink),
+        DebugValue(activeQuestItem and activeQuestItem.currentSpellID)
+    )
+    DescribeDebugRegion(lines, "ActiveQuestItemFrame", activeQuestItem and activeQuestItem.frame)
+    DescribeDebugRegion(lines, "ActiveQuestItemButton", activeQuestItem and activeQuestItem.button)
+
     return table.concat(lines, "\n")
 end
 
@@ -1701,6 +2380,9 @@ function BQL:RenderCustomTracker()
     HideBlizzardTracker(state)
     if self.ParkEnhanceQoLDamageMeterFrames then
         self:ParkEnhanceQoLDamageMeterFrames()
+    end
+    if self.ParkEnhanceQoLMythicPlusTimerFrame then
+        self:ParkEnhanceQoLMythicPlusTimerFrame()
     end
 
     local previousScroll = state.scrollFrame:GetVerticalScroll()
@@ -1716,6 +2398,8 @@ function BQL:RenderCustomTracker()
     state.objectiveWidgetUsed = false
     state.enhanceQoLDamageMeterRows = {}
     state.enhanceQoLDamageMeterFrames = {}
+    state.enhanceQoLMythicPlusTimerRow = nil
+    state.enhanceQoLMythicPlusTimerFrame = nil
     if state.objectiveWidgetContainer then
         state.objectiveWidgetContainer:SetAlpha(0)
     end
@@ -1740,38 +2424,48 @@ function BQL:RenderCustomTracker()
                     end
                     AddCategoryRow(state, category, categoryLabel)
                     hasVisibleCategory = true
-                    for questIndex, quest in ipairs(quests) do
-                        if questIndex > 1 then
-                            AddVerticalSpacing(state, self.db.questSpacing)
-                        end
-                        if quest.isScenario then
-                            AddScenarioCard(state, quest)
-                        elseif quest.isObjectiveWidget then
-                            AddObjectiveWidgetRow(state)
-                        elseif quest.isEnhanceQoLDamageMeter then
-                            AddEnhanceQoLDamageMeterRow(state, quest)
-                        else
-                            AddQuestTitleRow(state, quest)
-                        end
-                        if not quest.isEnhanceQoLDamageMeter
-                            and #(quest.objectives or {}) > 0
-                        then
-                            AddVerticalSpacing(state, self.db.questObjectiveSpacing)
-                        end
-                        if not quest.isEnhanceQoLDamageMeter then
-                            for _, objective in ipairs(quest.objectives or {}) do
-                                AddObjectiveRow(state, quest, objective)
-                                if objective.timerDuration and objective.timerStartTime then
-                                    AddTimerRow(
-                                        state,
-                                        quest,
-                                        objective.timerDuration,
-                                        objective.timerStartTime
-                                    )
-                                end
+                    if self:IsCategoryCollapsed(category) then
+                        for _, quest in ipairs(quests) do
+                            if not IsExternalFrameEntry(quest) then
+                                visibleQuestCount = visibleQuestCount + 1
                             end
-                            AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
-                            visibleQuestCount = visibleQuestCount + 1
+                        end
+                    else
+                        for questIndex, quest in ipairs(quests) do
+                            if questIndex > 1 then
+                                AddVerticalSpacing(state, self.db.questSpacing)
+                            end
+                            if quest.isScenario then
+                                AddScenarioCard(state, quest)
+                            elseif quest.isObjectiveWidget then
+                                AddObjectiveWidgetRow(state)
+                            elseif quest.isEnhanceQoLDamageMeter then
+                                AddEnhanceQoLDamageMeterRow(state, quest)
+                            elseif quest.isEnhanceQoLMythicPlusTimer then
+                                AddEnhanceQoLMythicPlusTimerRow(state)
+                            else
+                                AddQuestTitleRow(state, quest)
+                            end
+                            if not IsExternalFrameEntry(quest)
+                                and #(quest.objectives or {}) > 0
+                            then
+                                AddVerticalSpacing(state, self.db.questObjectiveSpacing)
+                            end
+                            if not IsExternalFrameEntry(quest) then
+                                for _, objective in ipairs(quest.objectives or {}) do
+                                    AddObjectiveRow(state, quest, objective)
+                                    if objective.timerDuration and objective.timerStartTime then
+                                        AddTimerRow(
+                                            state,
+                                            quest,
+                                            objective.timerDuration,
+                                            objective.timerStartTime
+                                        )
+                                    end
+                                end
+                                AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
+                                visibleQuestCount = visibleQuestCount + 1
+                            end
                         end
                     end
                 end
@@ -1809,12 +2503,17 @@ function BQL:RefreshCustomTracker(readData)
     end
 
     if readData or not state.snapshot then
-        local snapshot = self:BuildCustomSnapshot(state.snapshot)
+        local previousSnapshot = state.snapshot
+        local snapshot = self:BuildCustomSnapshot(previousSnapshot)
         if snapshot then
+            AutoExpandNewTrackedCategories(self, previousSnapshot, snapshot)
             state.snapshot = snapshot
         end
     end
     self:RenderCustomTracker()
+    if self.UpdateActiveQuestItemButton then
+        self:UpdateActiveQuestItemButton()
+    end
 end
 
 function BQL:RequestCustomRefresh(readData)
@@ -1919,11 +2618,14 @@ function BQL:InitializeCustomTracker()
     scrollFrame:SetScrollChild(content)
 
     local scenarioWidgetContainer = CreateFrame("Frame", nil, content, "UIWidgetContainerTemplate")
+    IsolateWidgetContainer(scenarioWidgetContainer)
     scenarioWidgetContainer.verticalAnchorPoint = "TOPLEFT"
     scenarioWidgetContainer.verticalRelativePoint = "BOTTOMLEFT"
     scenarioWidgetContainer:Hide()
 
     local objectiveWidgetContainer = CreateFrame("Frame", nil, UIParent, "UIWidgetContainerTemplate")
+    IsolateWidgetContainer(objectiveWidgetContainer)
+    objectiveWidgetContainer.bqlUseNeutralStatusBarFrame = true
     objectiveWidgetContainer.verticalAnchorPoint = "TOPLEFT"
     objectiveWidgetContainer.verticalRelativePoint = "BOTTOMLEFT"
     objectiveWidgetContainer:SetPoint("TOP", UIParent, "TOP", 0, 0)
@@ -1997,15 +2699,6 @@ function BQL:InitializeCustomTracker()
         self:RequestCustomRefresh(true)
     end)
 
-    blizzardTracker:HookScript("OnSizeChanged", function()
-        SetTrackerGeometry(self.customState)
-        self:RequestCustomRefresh(false)
-    end)
-
-    hooksecurefunc(blizzardTracker, "Show", function()
-        HideBlizzardTracker(self.customState)
-    end)
-
     local events = CreateFrame("Frame")
     local eventNames = {
         "PLAYER_ENTERING_WORLD",
@@ -2020,7 +2713,14 @@ function BQL:InitializeCustomTracker()
         "SUPER_TRACKING_CHANGED",
         "SCENARIO_UPDATE",
         "SCENARIO_CRITERIA_UPDATE",
+        "SCENARIO_SPELL_UPDATE",
         "SCENARIO_BONUS_VISIBILITY_UPDATE",
+        "ACTIVE_DELVE_DATA_UPDATE",
+        "WORLD_STATE_TIMER_START",
+        "WORLD_STATE_TIMER_STOP",
+        "CHALLENGE_MODE_START",
+        "CHALLENGE_MODE_COMPLETED",
+        "CHALLENGE_MODE_RESET",
         "CRITERIA_COMPLETE",
         "ZONE_CHANGED_NEW_AREA",
         "CONTENT_TRACKING_UPDATE",
@@ -2088,6 +2788,22 @@ function BQL:InitializeCustomTracker()
             state.scenarioWidgetRefreshReason = eventName
             self:RequestCustomRefresh(false)
             return
+        end
+
+        if eventName == "CURRENCY_DISPLAY_UPDATE" then
+            local currencyID = ...
+            if not IsSecret(currencyID)
+                and (currencyID == NEMESIS_ACTIVE_CURRENCY_ID
+                    or currencyID == NEMESIS_MAXIMUM_CURRENCY_ID)
+            then
+                -- The active-group currency briefly reports zero before its
+                -- final value after a kill. Re-read once the update settles.
+                C_Timer.After(1, function()
+                    if self.customState then
+                        self:RequestCustomRefresh(false)
+                    end
+                end)
+            end
         end
 
         if (eventName == "PLAYER_ENTERING_WORLD" or eventName == "ZONE_CHANGED_NEW_AREA")

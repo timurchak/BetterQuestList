@@ -4,16 +4,18 @@
 ## Notes-ruRU: Лёгкий трекер заданий с постоянным порядком категорий и прокруткой.
 ## Notes-deDE: Eine schlanke Questverfolgung mit fester Kategorienreihenfolge und Scrollen.
 ## Author: Timur
-## Version: 1.4.1
+## Version: 1.5.0
 ## X-Curse-Project-ID: 1653870
 ## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB
 ## Dependencies: Blizzard_ObjectiveTracker, Blizzard_EditMode
+## OptionalDeps: EnhanceQoL, EnhanceQoLDungeonRaid, EnhanceQoLDamageMeter
 
 Locales.lua
 CustomData.lua
 Core.lua
 Integrations.lua
 CustomTracker.lua
+ActiveQuestItem.lua
 EditMode.lua
 Options.lua

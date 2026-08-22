@@ -14,8 +14,10 @@ BQL.DAMAGE_METER_CATEGORIES = {
     "EnhanceQoLDamageMeter5",
 }
 BQL.LEGACY_DAMAGE_METER_CATEGORY = "EnhanceQoLDamageMeter"
+BQL.ENHANCEQOL_MYTHIC_TIMER_CATEGORY = "EnhanceQoLMythicPlusTimer"
 
 BQL.DEFAULT_ORDER = {
+    "EnhanceQoLMythicPlusTimer",
     "ScenarioObjectiveTracker",
     "UIWidgetObjectiveTracker",
     "CampaignQuestObjectiveTracker",
@@ -63,15 +65,101 @@ end
 
 function BQL:GetTooltip()
     if not self.tooltip then
-        -- Keep addon-owned anchors and quest data away from Blizzard's shared
-        -- GameTooltip, whose widget container may later process secret values.
-        local tooltip = CreateFrame(
-            "GameTooltip",
-            "BetterQuestListTooltip",
-            UIParent,
-            "GameTooltipTemplate"
-        )
+        -- Do not inherit GameTooltipTemplate here. Even a separate addon-owned
+        -- GameTooltip runs Blizzard's shared tooltip mixins; in Midnight that
+        -- can taint the global map tooltip before it measures secret widgets.
+        local tooltip = CreateFrame("Frame", "BetterQuestListTooltip", UIParent, "BackdropTemplate")
         tooltip:SetFrameStrata("TOOLTIP")
+        tooltip:SetClampedToScreen(true)
+        tooltip:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true,
+            tileSize = 16,
+            edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 },
+        })
+        tooltip:SetBackdropColor(0.02, 0.02, 0.02, 0.94)
+        tooltip:SetBackdropBorderColor(0.55, 0.55, 0.55, 1)
+        tooltip:SetWidth(300)
+        tooltip.lines = {}
+
+        function tooltip:SetOwner(owner, anchor)
+            self.owner = owner
+            self.anchor = anchor
+        end
+
+        function tooltip:ResetLines()
+            for _, line in ipairs(self.lines) do
+                line:Hide()
+                line:ClearAllPoints()
+            end
+            self.lineCount = 0
+        end
+
+        function tooltip:AddStyledLine(text, red, green, blue, isTitle)
+            self.lineCount = (self.lineCount or 0) + 1
+            local line = self.lines[self.lineCount]
+            if not line then
+                line = self:CreateFontString(
+                    nil,
+                    "ARTWORK",
+                    isTitle and "GameTooltipHeaderText" or "GameTooltipText"
+                )
+                line:SetJustifyH("LEFT")
+                line:SetJustifyV("TOP")
+                line:SetWordWrap(true)
+                self.lines[self.lineCount] = line
+            end
+            line:SetFontObject(isTitle and "GameTooltipHeaderText" or "GameTooltipText")
+            line:SetWidth(280)
+            line:SetText(text or "")
+            line:SetTextColor(red or 1, green or 1, blue or 1)
+            line:Show()
+        end
+
+        function tooltip:SetText(text, red, green, blue)
+            self:ResetLines()
+            self:AddStyledLine(text, red, green, blue, true)
+        end
+
+        function tooltip:AddLine(text, red, green, blue)
+            self:AddStyledLine(text, red, green, blue, false)
+        end
+
+        function tooltip:ShowTooltip()
+            local previousLine
+            local contentHeight = 0
+            for index = 1, self.lineCount or 0 do
+                local line = self.lines[index]
+                line:ClearAllPoints()
+                if previousLine then
+                    line:SetPoint("TOPLEFT", previousLine, "BOTTOMLEFT", 0, -4)
+                else
+                    line:SetPoint("TOPLEFT", self, "TOPLEFT", 10, -10)
+                end
+                local lineHeight = line:GetStringHeight()
+                if (issecretvalue and issecretvalue(lineHeight))
+                    or type(lineHeight) ~= "number"
+                then
+                    lineHeight = 14
+                end
+                contentHeight = contentHeight + lineHeight + (previousLine and 4 or 0)
+                previousLine = line
+            end
+
+            self:SetHeight(math.max(contentHeight + 20, 34))
+            self:ClearAllPoints()
+            if self.anchor == "ANCHOR_LEFT" then
+                self:SetPoint("RIGHT", self.owner or UIParent, "LEFT", -8, 0)
+            elseif self.anchor == "ANCHOR_RIGHT" then
+                self:SetPoint("LEFT", self.owner or UIParent, "RIGHT", 8, 0)
+            else
+                self:SetPoint("BOTTOMLEFT", self.owner or UIParent, "TOPLEFT", 0, 8)
+            end
+            self:Show()
+        end
+
         self.tooltip = tooltip
     end
 
@@ -140,6 +228,69 @@ function BQL:ResetCustomModuleLabels()
     if self.RefreshEditModeAppearancePanel then
         self:RefreshEditModeAppearancePanel()
     end
+end
+
+function BQL:IsCategoryCollapsed(name)
+    return self.db
+        and type(self.db.collapsedCategories) == "table"
+        and self.db.collapsedCategories[name] == true
+end
+
+function BQL:ToggleCategoryCollapsed(name)
+    if not self.db or type(name) ~= "string" or name == "" then
+        return
+    end
+    if type(self.db.collapsedCategories) ~= "table" then
+        self.db.collapsedCategories = {}
+    end
+    local hasMythicTimerCategory = false
+    local scenarioCategoryIndex
+    for index, category in ipairs(self.db.moduleOrder) do
+        if category == self.ENHANCEQOL_MYTHIC_TIMER_CATEGORY then
+            hasMythicTimerCategory = true
+        elseif category == "ScenarioObjectiveTracker" then
+            scenarioCategoryIndex = index
+        end
+    end
+    if not hasMythicTimerCategory then
+        table.insert(
+            self.db.moduleOrder,
+            scenarioCategoryIndex or 1,
+            self.ENHANCEQOL_MYTHIC_TIMER_CATEGORY
+        )
+    end
+
+    if self.db.collapsedCategories[name] then
+        self.db.collapsedCategories[name] = nil
+    else
+        self.db.collapsedCategories[name] = true
+    end
+    self:RequestCustomRefresh(false)
+end
+
+function BQL:SetCategoryCollapsed(name, collapsed, refresh)
+    if not self.db or type(name) ~= "string" or name == "" then
+        return false
+    end
+    if type(self.db.collapsedCategories) ~= "table" then
+        self.db.collapsedCategories = {}
+    end
+
+    local wasCollapsed = self.db.collapsedCategories[name] == true
+    local shouldCollapse = collapsed and true or false
+    if wasCollapsed == shouldCollapse then
+        return false
+    end
+
+    self.db.collapsedCategories[name] = shouldCollapse and true or nil
+    if refresh ~= false and self.RequestCustomRefresh then
+        self:RequestCustomRefresh(false)
+    end
+    return true
+end
+
+function BQL:ExpandCategory(name, refresh)
+    return self:SetCategoryCollapsed(name, false, refresh)
 end
 
 function BQL:GetAvailableModuleNames()
@@ -443,6 +594,9 @@ function BQL:Initialize()
     if type(self.db.categoryLabels) ~= "table" then
         self.db.categoryLabels = {}
     end
+    if type(self.db.collapsedCategories) ~= "table" then
+        self.db.collapsedCategories = {}
+    end
     if self.db.categoryLabels[self.LEGACY_DAMAGE_METER_CATEGORY]
         and not self.db.categoryLabels[self.DAMAGE_METER_CATEGORIES[1]]
     then
@@ -461,6 +615,18 @@ function BQL:Initialize()
     if self.db.collapsed == nil then
         self.db.collapsed = false
     end
+    if self.db.activeQuestItemEnabled == nil then
+        self.db.activeQuestItemEnabled = false
+    else
+        self.db.activeQuestItemEnabled = self.db.activeQuestItemEnabled and true or false
+    end
+    if type(self.db.enhanceQoLMythicPlusTimerHeight) ~= "number" then
+        self.db.enhanceQoLMythicPlusTimerHeight = 0
+    end
+    self.db.enhanceQoLMythicPlusTimerHeight = math.max(
+        0,
+        math.min(math.floor(self.db.enhanceQoLMythicPlusTimerHeight + 0.5), 600)
+    )
     if type(self.db.scrollStep) ~= "number" then
         self.db.scrollStep = 45
     end
@@ -544,6 +710,8 @@ function BQL:Initialize()
     self:CreateOptions()
     self:InitializeCustomTracker()
     self:InitializeEnhanceQoLDamageMeterIntegration()
+    self:InitializeEnhanceQoLMythicPlusTimerIntegration()
+    self:InitializeActiveQuestItem()
     self:InitializeEditModeIntegration()
     self:Print(self.text.customMode)
 end
