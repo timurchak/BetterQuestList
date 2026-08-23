@@ -1,71 +1,76 @@
 # BetterQuestList
 
-BetterQuestList is a lightweight, configurable replacement for the visual part of World of Warcraft's Objective Tracker. It keeps the familiar Blizzard experience while adding persistent category ordering, reliable mouse-wheel scrolling, and a cleaner customizable layout.
+BetterQuestList makes the default WoW Objective Tracker easier to use without turning it into a completely different addon.
 
-Unlike full tracker replacements, BetterQuestList does not try to recreate every dungeon, Delve, event, or scenario interface. It uses Blizzard-provided scenario UI, widget sets, and context-specific visuals inside its scrollable list, preserving the correct stages, timers, icons, counters, lives, and presentation supplied by the game while leaving the live Blizzard tracker under Blizzard's control.
+You keep the familiar Blizzard look and behavior, but gain proper scrolling, category ordering, a cleaner layout, and plenty of visual options in Edit Mode. It works with regular quests, campaigns, World Quests, Delves, scenarios, achievements, profession recipes, and other tracked activities.
 
-> **Work in progress:** BetterQuestList is under active development. Some content types, combat situations, or combinations with other UI addons may still expose bugs or visual conflicts. Feedback, suggestions, compatibility reports, and bug reports are very welcome and directly help shape upcoming releases.
+The goal is simple: keep everything useful about Blizzard's tracker, remove the annoying parts, and give you more control over how it looks.
+
+> **Still a work in progress:** the addon is actively developed. WoW has many special trackers, widgets, and protected combat states, so an unusual event or another UI addon may occasionally cause a visual issue. Reports and suggestions are always welcome.
+
+## What you can do
+
+- Put tracker categories in the order you prefer.
+- Collapse individual categories and keep your layout between sessions.
+- Scroll long objective lists with the mouse wheel.
+- Move and resize the tracker through WoW Edit Mode.
+- Choose fonts and text size from the fonts available in your UI setup.
+- Change quest colors for active, completed, and low-level quests.
+- Show quest levels and the location of regular quests.
+- Adjust quest icons, titles, locations, objectives, spacing, and progress bars.
+- Rename category headings.
+- Keep Blizzard-style quest icons, quest item buttons, timers, group finder buttons, menus, and scenario visuals.
+- Use a separate movable button for active quest items and scenario actions.
+- See useful Delve information such as the remaining empowered enemy groups when available.
+- Search Auctionator for reagents required by your tracked profession recipes.
+
+## Integrations available now
+
+- **EnhanceQoL Damage Meter:** embed up to five independently ordered windows in the tracker.
+- **EnhanceQoL Mythic+ Timer:** place the timer directly inside your category order and adjust its height.
+- **Auctionator:** search for the reagents needed by all tracked recipes while the auction house is open.
 
 ## Roadmap
 
-EnhanceQoL Damage Meter integration is available now, including support for up to five independently assigned windows. Details! is the next planned combat meter integration.
+These are the main areas planned for upcoming updates:
 
-Planned areas of development include:
+- Integration with **MythicPlusTimer** and other popular Mythic+ timer addons.
+- Integration with **Details!** and other damage or combat meters.
+- Better support for navigation and waypoint addons such as **TomTom**.
+- More quality-of-life options for World Quests and newly appearing objectives.
+- More integrations requested by the community.
+- Ongoing fixes for Delves, scenarios, combat restrictions, and compatibility with other UI addons.
 
-- Details! DPS and combat meter integration.
-- Compatibility and integration with addons that replace or modify the Mythic+ timer.
-- Better interoperability with navigation and waypoint addons, including TomTom.
-- Additional integrations based on community feedback and real-world compatibility reports.
-
-## Features
-
-- Arrange tracked-content categories in your preferred order.
-- Keep that order after login, reloads, combat, and tracker updates.
-- Scroll long objective lists with the mouse wheel.
-- Display Blizzard-provided scenario UI and context-specific visuals for dungeons, Delves, events, and other scenarios.
-- Embed up to five EnhanceQoL Damage Meter windows as independently ordered tracker categories.
-- Assign each embedded EnhanceQoL window to its own category through WoW Edit Mode.
-- Rename every category heading while retaining localized defaults.
-- Show multiline quest names and objectives without losing counters at the edge.
-- Retain familiar quest POI icons, quest-item buttons, group finder buttons, timers, auto-complete actions, and party progress tooltips.
-- Track regular quests, campaigns, world quests, bonus objectives, achievements, profession recipes, Traveler's Log activities, Endeavors, collection targets, and objective widgets.
-- Use Blizzard-style right-click menus with quest details, map actions, sharing, abandoning, tracking controls, and locale-aware Wowhead links.
-- Customize fonts, outlines, shadows, tracker background, category header style, spacing, and offsets.
-- Adjust appearance through WoW Edit Mode.
-- Preserve the last readable objective progress when the game temporarily protects live values during combat.
+The roadmap is not a fixed release order. Features may move around depending on game updates, API restrictions, and feedback.
 
 ## Getting started
 
-Open the settings with:
+Open the addon settings with:
 
 `/bql`
 
-You can also find BetterQuestList in WoW's standard AddOns settings and configure its appearance through Edit Mode.
+Use WoW Edit Mode to move the tracker and customize its appearance. The standard AddOns settings contain category order and general behavior options.
 
-Additional commands:
+Other useful commands:
 
 - `/bql reset` — restore the default category order.
 - `/bql scroll` — enable or disable mouse-wheel scrolling.
-- `/bql debug` — open a copyable diagnostic report for bug reports.
+- `/bql debug` — open a diagnostic report that can be copied into a bug report.
 
-## Localization
-
-BetterQuestList includes:
+## Languages
 
 - English
 - German
 - Russian
 
-## Compatibility
-
-BetterQuestList is built for modern World of Warcraft Retail. It deliberately leaves Blizzard's Objective Tracker active in the background so protected game data and native scenario presentation remain under Blizzard's control.
-
-The addon is focused: it changes how tracked content is presented, but does not alter quest data, progression, or completion state.
-
 ## Feedback and bug reports
 
-All feedback is appreciated, even if the problem is difficult to reproduce. If something is positioned incorrectly, disappears, behaves differently in combat, or conflicts with another addon, run `/bql debug`. Copy the report with `Ctrl+A`, then `Ctrl+C`, and attach it to your report together with:
+Found something strange? Run `/bql debug`, copy the report with `Ctrl+A` and `Ctrl+C`, and include it with a short description of what happened.
 
-- A short description of what happened and what you expected.
-- The dungeon, Delve, event, or other activity where it occurred.
-- The names of other addons that modify the Objective Tracker, Mythic+ timer, combat meter, navigation, waypoints, or nearby UI elements.
+It also helps to mention:
+
+- The dungeon, Delve, event, or activity where the problem appeared.
+- What you expected to see.
+- Any addons you use for the Objective Tracker, Mythic+ timers, damage meters, navigation, or nearby UI elements.
+
+Even small reports help make the addon better.
