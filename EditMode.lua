@@ -1,7 +1,7 @@
 local _, BQL = ...
 
 local PANEL_WIDTH = 540
-local PANEL_HEIGHT = 770
+local PANEL_HEIGHT = 680
 local LFG_EYE_TEXTURE = "Interface\\LFGFrame\\LFG-Eye"
 local LFG_EYE_FRAME_OPEN = 0
 local LFG_EYE_FRAME_CLOSED = 4
@@ -31,6 +31,21 @@ local function UpdateEyeButton(button, hidden)
     SetEyeTextureFrame(texture, hidden and LFG_EYE_FRAME_CLOSED or LFG_EYE_FRAME_OPEN)
 end
 
+function BQL:SuppressBlizzardTrackerEditModeSelection()
+    local state = self.customState
+    local tracker = state and state.blizzardTracker
+    local selection = tracker and tracker.Selection
+    if not selection or type(selection.SetAlpha) ~= "function" then
+        return
+    end
+
+    if type(securecallfunction) == "function" then
+        securecallfunction(selection.SetAlpha, selection, 0)
+    else
+        selection:SetAlpha(0)
+    end
+end
+
 local function SetOverlayHidden(integration, hidden)
     if not integration then
         return
@@ -38,6 +53,7 @@ local function SetOverlayHidden(integration, hidden)
     integration.overlayHidden = hidden and true or false
     integration.overlay:SetAlpha(integration.overlayHidden and 0 or 1)
     UpdateEyeButton(integration.eyeButton, integration.overlayHidden)
+    integration.addon:SuppressBlizzardTrackerEditModeSelection()
 end
 
 local function CreateLabel(parent, fontObject, text)
@@ -73,7 +89,11 @@ local function CreateChoiceDropdown(parent, choices, getValue, setValue)
     end
 
     dropdown:SetupMenu(function(_, rootDescription)
-        for _, choice in ipairs(GetChoices()) do
+        local availableChoices = GetChoices()
+        if #availableChoices > 12 and rootDescription.SetScrollMode then
+            rootDescription:SetScrollMode(320)
+        end
+        for _, choice in ipairs(availableChoices) do
             local value = choice.value
             rootDescription:CreateRadio(choice.label, function()
                 return getValue() == value
@@ -170,6 +190,130 @@ local function CreateDropdownRow(parent, labelText, choices, getValue, setValue)
     return row
 end
 
+local function CreateCheckBoxRow(parent, labelText, getValue, setValue)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(38)
+
+    local label = CreateLabel(row, "GameFontHighlightMedium", labelText)
+    label:SetPoint("LEFT", 0, 0)
+    label:SetWidth(390)
+
+    local checkBox = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    checkBox:SetPoint("RIGHT", row, "RIGHT", -18, 0)
+    checkBox:SetScript("OnClick", function(button)
+        setValue(button:GetChecked() and true or false)
+    end)
+
+    function row:Refresh()
+        checkBox:SetChecked(getValue() and true or false)
+    end
+
+    return row
+end
+
+local function ShowColorPicker(color, setColor)
+    if not ColorPickerFrame then
+        return
+    end
+
+    local previous = {
+        r = tonumber(color and color.r) or 1,
+        g = tonumber(color and color.g) or 1,
+        b = tonumber(color and color.b) or 1,
+    }
+
+    local function ApplyPickerColor()
+        local red, green, blue = ColorPickerFrame:GetColorRGB()
+        setColor(red, green, blue)
+    end
+
+    if ColorPickerFrame.SetupColorPickerAndShow then
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = previous.r,
+            g = previous.g,
+            b = previous.b,
+            hasOpacity = false,
+            swatchFunc = ApplyPickerColor,
+            cancelFunc = function()
+                setColor(previous.r, previous.g, previous.b)
+            end,
+        })
+    else
+        ColorPickerFrame.func = ApplyPickerColor
+        ColorPickerFrame.cancelFunc = function()
+            setColor(previous.r, previous.g, previous.b)
+        end
+        ColorPickerFrame.hasOpacity = false
+        ColorPickerFrame:SetColorRGB(previous.r, previous.g, previous.b)
+        ColorPickerFrame:Show()
+    end
+end
+
+local function CreateColorRow(parent, labelText, getColor, setColor)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(38)
+
+    local label = CreateLabel(row, "GameFontHighlightMedium", labelText)
+    label:SetPoint("LEFT", 0, 0)
+    label:SetWidth(220)
+
+    local swatch = CreateFrame("Button", nil, row, "BackdropTemplate")
+    swatch:SetSize(42, 24)
+    swatch:SetPoint("LEFT", label, "RIGHT", 12, 0)
+    swatch:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    swatch:SetBackdropBorderColor(0.65, 0.65, 0.65, 1)
+    swatch:SetScript("OnClick", function()
+        ShowColorPicker(getColor(), function(red, green, blue)
+            setColor(red, green, blue)
+            row:Refresh()
+        end)
+    end)
+
+    function row:Refresh()
+        local color = getColor() or {}
+        swatch:SetBackdropColor(
+            tonumber(color.r) or 1,
+            tonumber(color.g) or 1,
+            tonumber(color.b) or 1,
+            1
+        )
+    end
+
+    return row
+end
+
+
+local function CreateSectionHeader(parent, labelText)
+    local header = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    header:SetHeight(30)
+    header:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+    header:SetBackdropColor(0.12, 0.12, 0.12, 0.92)
+
+    header.arrow = header:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    header.arrow:SetPoint("LEFT", 9, 0)
+
+    header.label = header:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    header.label:SetPoint("LEFT", header.arrow, "RIGHT", 7, 0)
+    header.label:SetText(labelText)
+
+    header:SetScript("OnEnter", function(button)
+        button:SetBackdropColor(0.20, 0.20, 0.20, 0.95)
+    end)
+    header:SetScript("OnLeave", function(button)
+        button:SetBackdropColor(0.12, 0.12, 0.12, 0.92)
+    end)
+
+    function header:SetCollapsed(collapsed)
+        self.arrow:SetText(collapsed and "+" or "-")
+    end
+
+    return header
+end
+
 function BQL:RefreshEditModeAppearancePanel()
     local integration = self.editModeIntegration
     if not integration then
@@ -178,6 +322,9 @@ function BQL:RefreshEditModeAppearancePanel()
 
     for _, row in ipairs(integration.optionRows) do
         row:Refresh()
+    end
+    if integration.LayoutSections then
+        integration:LayoutSections()
     end
 end
 
@@ -230,6 +377,7 @@ function BQL:SetEditModeAppearanceShown(shown)
         if integration.overlay.ShowSelected then
             integration.overlay:ShowSelected()
         end
+        self:SuppressBlizzardTrackerEditModeSelection()
         self:RefreshEditModeAppearancePanel()
         self:PositionEditModeAppearancePanel()
         integration.panel:Show()
@@ -251,6 +399,7 @@ function BQL:OnBetterQuestListEditModeEnter()
 
     local state = self.customState
     SetOverlayHidden(integration, false)
+    self:SuppressBlizzardTrackerEditModeSelection()
     if state then
         state.editModeActive = true
         state.scrollFrame:EnableMouseWheel(false)
@@ -276,6 +425,7 @@ function BQL:OnBetterQuestListEditModeEnter()
                 SetOverlayHidden(currentIntegration, false)
                 currentIntegration.overlay:ShowHighlighted()
             end
+            self:SuppressBlizzardTrackerEditModeSelection()
         end)
     end
 
@@ -381,12 +531,26 @@ function BQL:InitializeEditModeIntegration()
     end)
     UpdateEyeButton(eyeButton, false)
 
-    local fontChoices = {
-        { value = "default", label = self.text.fontDefault },
-        { value = "chat", label = self.text.fontChat },
-        { value = "quest", label = self.text.fontQuest },
-        { value = "system", label = self.text.fontSystem },
-    }
+    local optionsScrollFrame = CreateFrame("ScrollFrame", nil, panel)
+    optionsScrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -52)
+    optionsScrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 14)
+    optionsScrollFrame:EnableMouseWheel(true)
+
+    local optionsContent = CreateFrame("Frame", nil, optionsScrollFrame)
+    optionsContent:SetSize(PANEL_WIDTH - 38, 1)
+    optionsScrollFrame:SetScrollChild(optionsContent)
+    optionsScrollFrame:SetScript("OnMouseWheel", function(scrollFrame, delta)
+        local maximum = math.max(
+            0,
+            optionsContent:GetHeight() - scrollFrame:GetHeight()
+        )
+        local target = scrollFrame:GetVerticalScroll() - (delta * 42)
+        scrollFrame:SetVerticalScroll(math.max(0, math.min(target, maximum)))
+    end)
+
+    local function GetFontChoices()
+        return self:GetMediaChoices("font", true)
+    end
     local backgroundChoices = {
         { value = "none", label = self.text.backgroundNone },
         { value = "subtle", label = self.text.backgroundSubtle },
@@ -407,10 +571,13 @@ function BQL:InitializeEditModeIntegration()
         { value = "blizzard", label = self.text.categoryStyleBlizzard },
         { value = "plain", label = self.text.categoryStylePlain },
     }
+    local function GetProgressBarTextureChoices()
+        return self:GetMediaChoices("statusbar", false)
+    end
 
-    local optionRows = {
+    local layoutRows = {
         CreateSlider(
-            panel,
+            optionsContent,
             self.text.trackerWidth,
             self.TRACKER_WIDTH_MIN,
             self.TRACKER_WIDTH_MAX,
@@ -425,7 +592,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateSlider(
-            panel,
+            optionsContent,
             self.text.trackerHeight,
             self.TRACKER_HEIGHT_MIN,
             self.TRACKER_HEIGHT_MAX,
@@ -439,8 +606,228 @@ function BQL:InitializeEditModeIntegration()
                 return ("%d px"):format(value)
             end
         ),
+        CreateDropdownRow(optionsContent, self.text.background, backgroundChoices, function()
+            return self.db.background
+        end, function(value)
+            self.db.background = value
+            self:ApplyCustomAppearance()
+        end),
+    }
+
+    local textRows = {
+        CreateDropdownRow(optionsContent, self.text.font, GetFontChoices, function()
+            return self.db.fontFace
+        end, function(value)
+            self.db.fontFace = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.fontSize, 8, 32, function()
+            return self.db.fontSize
+        end, function(value)
+            self.db.fontSize = value
+            self:ApplyCustomAppearance()
+        end, function(value)
+            return ("%d px"):format(value)
+        end),
+        CreateDropdownRow(optionsContent, self.text.fontOutline, fontOutlineChoices, function()
+            return self.db.fontOutline
+        end, function(value)
+            self.db.fontOutline = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateDropdownRow(optionsContent, self.text.fontShadow, fontShadowChoices, function()
+            return self.db.fontShadow
+        end, function(value)
+            self.db.fontShadow = value
+            self:ApplyCustomAppearance()
+        end),
+    }
+
+    local questRows = {
+        CreateColorRow(optionsContent, self.text.questTitleColor, function()
+            return self.db.questTitleColor
+        end, function(red, green, blue)
+            self.db.questTitleColor = { r = red, g = green, b = blue }
+            self:ApplyCustomAppearance()
+        end),
+        CreateColorRow(optionsContent, self.text.questCompleteColor, function()
+            return self.db.questCompleteColor
+        end, function(red, green, blue)
+            self.db.questCompleteColor = { r = red, g = green, b = blue }
+            self:ApplyCustomAppearance()
+        end),
+        CreateColorRow(optionsContent, self.text.questLowLevelColor, function()
+            return self.db.questLowLevelColor
+        end, function(red, green, blue)
+            self.db.questLowLevelColor = { r = red, g = green, b = blue }
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questLowLevelThreshold, -20, 0, function()
+            return self.db.questLowLevelThreshold
+        end, function(value)
+            self.db.questLowLevelThreshold = value
+            self:ApplyCustomAppearance()
+        end, function(value)
+            return ("%+d"):format(value)
+        end),
+        CreateCheckBoxRow(optionsContent, self.text.showQuestLevel, function()
+            return self.db.showQuestLevel
+        end, function(value)
+            self.db.showQuestLevel = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateCheckBoxRow(optionsContent, self.text.showQuestLocation, function()
+            return self.db.showQuestLocation
+        end, function(value)
+            self.db.showQuestLocation = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateColorRow(optionsContent, self.text.questLocationColor, function()
+            return self.db.questLocationColor
+        end, function(red, green, blue)
+            self.db.questLocationColor = { r = red, g = green, b = blue }
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questSpacing, 0, 30, function()
+            return self.db.questSpacing
+        end, function(value)
+            self.db.questSpacing = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questObjectiveSpacing, 0, 20, function()
+            return self.db.questObjectiveSpacing
+        end, function(value)
+            self.db.questObjectiveSpacing = value
+            self:ApplyCustomAppearance()
+        end),
+    }
+
+    local positioningRows = {
+        CreateSlider(optionsContent, self.text.questIconOffsetX, -100, 100, function()
+            return self.db.questIconOffsetX
+        end, function(value)
+            self.db.questIconOffsetX = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questIconOffsetY, -50, 50, function()
+            return self.db.questIconOffsetY
+        end, function(value)
+            self.db.questIconOffsetY = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questTitleOffsetX, -100, 100, function()
+            return self.db.questTitleOffsetX
+        end, function(value)
+            self.db.questTitleOffsetX = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questTitleOffsetY, -50, 50, function()
+            return self.db.questTitleOffsetY
+        end, function(value)
+            self.db.questTitleOffsetY = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questLocationOffsetX, -100, 100, function()
+            return self.db.questLocationOffsetX
+        end, function(value)
+            self.db.questLocationOffsetX = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questLocationOffsetY, -50, 50, function()
+            return self.db.questLocationOffsetY
+        end, function(value)
+            self.db.questLocationOffsetY = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questObjectiveOffsetX, -100, 100, function()
+            return self.db.questObjectiveOffsetX
+        end, function(value)
+            self.db.questObjectiveOffsetX = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.questObjectiveOffsetY, -50, 50, function()
+            return self.db.questObjectiveOffsetY
+        end, function(value)
+            self.db.questObjectiveOffsetY = value
+            self:ApplyCustomAppearance()
+        end),
+    }
+
+    local progressRows = {
+        CreateDropdownRow(
+            optionsContent,
+            self.text.progressBarTexture,
+            GetProgressBarTextureChoices,
+            function()
+                return self.db.progressBarTexture
+            end,
+            function(value)
+                self.db.progressBarTexture = value
+                self:ApplyCustomAppearance()
+            end
+        ),
+        CreateSlider(optionsContent, self.text.progressBarHeight, 8, 28, function()
+            return self.db.progressBarHeight
+        end, function(value)
+            self.db.progressBarHeight = value
+            self:ApplyCustomAppearance()
+        end, function(value)
+            return ("%d px"):format(value)
+        end),
+        CreateColorRow(optionsContent, self.text.progressBarColor, function()
+            return self.db.progressBarColor
+        end, function(red, green, blue)
+            self.db.progressBarColor = { r = red, g = green, b = blue }
+            self:ApplyCustomAppearance()
+        end),
         CreateSlider(
-            panel,
+            optionsContent,
+            self.text.progressBarBackgroundOpacity,
+            0,
+            100,
+            function()
+                return self.db.progressBarBackgroundOpacity
+            end,
+            function(value)
+                self.db.progressBarBackgroundOpacity = value
+                self:ApplyCustomAppearance()
+            end,
+            function(value)
+                return ("%d%%"):format(value)
+            end
+        ),
+    }
+
+    local categoryRows = {
+        CreateDropdownRow(optionsContent, self.text.categoryStyle, categoryStyleChoices, function()
+            return self.db.categoryStyle
+        end, function(value)
+            self.db.categoryStyle = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.categoryOffset, -20, 20, function()
+            return self.db.categoryOffset
+        end, function(value)
+            self.db.categoryOffset = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.categoryTextOffset, -100, 100, function()
+            return self.db.categoryTextOffset
+        end, function(value)
+            self.db.categoryTextOffset = value
+            self:ApplyCustomAppearance()
+        end),
+        CreateSlider(optionsContent, self.text.categorySpacing, 0, 30, function()
+            return self.db.categorySpacing
+        end, function(value)
+            self.db.categorySpacing = value
+            self:ApplyCustomAppearance()
+        end),
+    }
+
+    local integrationRows = {
+        CreateSlider(
+            optionsContent,
             self.text.mythicPlusTimerHeight,
             0,
             600,
@@ -459,7 +846,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateDropdownRow(
-            panel,
+            optionsContent,
             function()
                 return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[1])
             end,
@@ -474,7 +861,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateDropdownRow(
-            panel,
+            optionsContent,
             function()
                 return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[2])
             end,
@@ -489,7 +876,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateDropdownRow(
-            panel,
+            optionsContent,
             function()
                 return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[3])
             end,
@@ -504,7 +891,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateDropdownRow(
-            panel,
+            optionsContent,
             function()
                 return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[4])
             end,
@@ -519,7 +906,7 @@ function BQL:InitializeEditModeIntegration()
             end
         ),
         CreateDropdownRow(
-            panel,
+            optionsContent,
             function()
                 return self:GetModuleLabel(self.DAMAGE_METER_CATEGORIES[5])
             end,
@@ -533,83 +920,81 @@ function BQL:InitializeEditModeIntegration()
                 self:SetEnhanceQoLDamageMeterWindow(5, value)
             end
         ),
-        CreateDropdownRow(panel, self.text.font, fontChoices, function()
-            return self.db.font
-        end, function(value)
-            self.db.font = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateDropdownRow(panel, self.text.fontOutline, fontOutlineChoices, function()
-            return self.db.fontOutline
-        end, function(value)
-            self.db.fontOutline = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateDropdownRow(panel, self.text.fontShadow, fontShadowChoices, function()
-            return self.db.fontShadow
-        end, function(value)
-            self.db.fontShadow = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateDropdownRow(panel, self.text.background, backgroundChoices, function()
-            return self.db.background
-        end, function(value)
-            self.db.background = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateDropdownRow(panel, self.text.categoryStyle, categoryStyleChoices, function()
-            return self.db.categoryStyle
-        end, function(value)
-            self.db.categoryStyle = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateSlider(panel, self.text.categoryOffset, -20, 20, function()
-            return self.db.categoryOffset
-        end, function(value)
-            self.db.categoryOffset = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateSlider(panel, self.text.categoryTextOffset, -100, 100, function()
-            return self.db.categoryTextOffset
-        end, function(value)
-            self.db.categoryTextOffset = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateSlider(panel, self.text.categorySpacing, 0, 30, function()
-            return self.db.categorySpacing
-        end, function(value)
-            self.db.categorySpacing = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateSlider(panel, self.text.questSpacing, 0, 30, function()
-            return self.db.questSpacing
-        end, function(value)
-            self.db.questSpacing = value
-            self:ApplyCustomAppearance()
-        end),
-        CreateSlider(panel, self.text.questObjectiveSpacing, 0, 20, function()
-            return self.db.questObjectiveSpacing
-        end, function(value)
-            self.db.questObjectiveSpacing = value
-            self:ApplyCustomAppearance()
-        end),
     }
 
-    for index, row in ipairs(optionRows) do
-        if index == 1 then
-            row:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -58)
-        else
-            row:SetPoint("TOPLEFT", optionRows[index - 1], "BOTTOMLEFT", 0, -2)
+    local sections = {
+        { id = "layout", label = self.text.editSectionLayout, rows = layoutRows },
+        { id = "text", label = self.text.editSectionText, rows = textRows },
+        { id = "quests", label = self.text.editSectionQuests, rows = questRows },
+        {
+            id = "positioning",
+            label = self.text.editSectionPositioning,
+            rows = positioningRows,
+        },
+        { id = "progress", label = self.text.editSectionProgress, rows = progressRows },
+        { id = "categories", label = self.text.editSectionCategories, rows = categoryRows },
+        { id = "integrations", label = self.text.editSectionIntegrations, rows = integrationRows },
+    }
+    local optionRows = {}
+    for _, section in ipairs(sections) do
+        local currentSection = section
+        section.header = CreateSectionHeader(optionsContent, section.label)
+        section.header:SetScript("OnClick", function()
+            local collapsed = self.db.editModeCollapsedSections
+            collapsed[currentSection.id] = not collapsed[currentSection.id]
+            if self.editModeIntegration and self.editModeIntegration.LayoutSections then
+                self.editModeIntegration:LayoutSections()
+            end
+        end)
+        for _, row in ipairs(section.rows) do
+            optionRows[#optionRows + 1] = row
         end
-        row:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
     end
 
-    self.editModeIntegration = {
+    local integration = {
         overlay = overlay,
         panel = panel,
         eyeButton = eyeButton,
+        optionsScrollFrame = optionsScrollFrame,
+        optionsContent = optionsContent,
+        sections = sections,
         optionRows = optionRows,
     }
+    function integration:LayoutSections()
+        local offsetY = -2
+        for _, section in ipairs(self.sections) do
+            local collapsed = self.addon.db.editModeCollapsedSections[section.id] == true
+            section.header:ClearAllPoints()
+            section.header:SetPoint("TOPLEFT", self.optionsContent, "TOPLEFT", 0, offsetY)
+            section.header:SetPoint("TOPRIGHT", self.optionsContent, "TOPRIGHT", 0, offsetY)
+            section.header:SetCollapsed(collapsed)
+            section.header:Show()
+            offsetY = offsetY - 34
+
+            for _, row in ipairs(section.rows) do
+                row:ClearAllPoints()
+                row:SetShown(not collapsed)
+                if not collapsed then
+                    row:SetPoint("TOPLEFT", self.optionsContent, "TOPLEFT", 8, offsetY)
+                    row:SetPoint("TOPRIGHT", self.optionsContent, "TOPRIGHT", -8, offsetY)
+                    offsetY = offsetY - row:GetHeight() - 2
+                end
+            end
+        end
+
+        self.optionsContent:SetHeight(math.max(1, -offsetY + 4))
+        local maximum = math.max(
+            0,
+            self.optionsContent:GetHeight() - self.optionsScrollFrame:GetHeight()
+        )
+        self.optionsScrollFrame:SetVerticalScroll(math.min(
+            self.optionsScrollFrame:GetVerticalScroll(),
+            maximum
+        ))
+    end
+    integration.addon = self
+    self.editModeIntegration = integration
+    integration:LayoutSections()
     if self.InitializeActiveQuestItemEditMode then
         self:InitializeActiveQuestItemEditMode()
     end
@@ -624,9 +1009,8 @@ function BQL:InitializeEditModeIntegration()
         if manager and manager.SelectSystem and tracker then
             if type(securecallfunction) == "function" then
                 securecallfunction(manager.SelectSystem, manager, tracker)
-            else
-                manager:SelectSystem(tracker)
             end
+            self:SuppressBlizzardTrackerEditModeSelection()
             if _G.EditModeSystemSettingsDialog then
                 EditModeSystemSettingsDialog:Hide()
             end
@@ -647,8 +1031,6 @@ function BQL:InitializeEditModeIntegration()
         if tracker and tracker.OnDragStart then
             if type(securecallfunction) == "function" then
                 securecallfunction(tracker.OnDragStart, tracker)
-            else
-                tracker:OnDragStart()
             end
         end
     end)
@@ -657,8 +1039,6 @@ function BQL:InitializeEditModeIntegration()
         if tracker and tracker.OnDragStop then
             if type(securecallfunction) == "function" then
                 securecallfunction(tracker.OnDragStop, tracker)
-            else
-                tracker:OnDragStop()
             end
         end
         self:PositionEditModeAppearancePanel()

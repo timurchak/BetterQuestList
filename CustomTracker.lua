@@ -19,6 +19,7 @@ local NEMESIS_SPELL_IDS = {
 }
 local NEMESIS_ACTIVE_CURRENCY_ID = 3103
 local NEMESIS_MAXIMUM_CURRENCY_ID = 3104
+local PROFESSION_CATEGORY = "ProfessionsRecipeTracker"
 
 BQL.TRACKER_WIDTH_MIN = TRACKER_WIDTH_MIN
 BQL.TRACKER_WIDTH_MAX = TRACKER_WIDTH_MAX
@@ -63,17 +64,21 @@ local function InvokeBlizzardAction(action, ...)
     return true
 end
 
-local WESTERN_FONT_FILES = {
-    chat = "Fonts\\ARIALN.TTF",
-    quest = "Fonts\\MORPHEUS.TTF",
-    system = "Fonts\\SKURRI.TTF",
-}
+local function IsAuctionHouseOpen()
+    return (AuctionHouseFrame and AuctionHouseFrame:IsShown())
+        or (AuctionFrame and AuctionFrame:IsShown())
+        or false
+end
 
-local CYRILLIC_FONT_FILES = {
-    chat = "Fonts\\NIM_____.ttf",
-    quest = "Fonts\\MORPHEUS_CYR.TTF",
-    system = "Fonts\\SKURRI_CYR.TTF",
-}
+local function GetAuctionatorTrackedRecipeSearch()
+    local auctionator = _G.Auctionator
+    local craftingInfo = auctionator and auctionator.CraftingInfo
+    local search = craftingInfo and craftingInfo.DoTrackedRecipesSearch
+    if type(search) == "function" then
+        return search
+    end
+    return nil
+end
 
 local BACKGROUND_STYLES = {
     none = {
@@ -136,11 +141,11 @@ local function ApplySelectedFont(addon, fontString, baseFontObject)
     end
 
     local baseFile, fontHeight, baseFlags = fontString:GetFont()
-    local fontFiles = GetLocale() == "ruRU" and CYRILLIC_FONT_FILES or WESTERN_FONT_FILES
-    local fontFile = fontFiles[addon.db.font] or baseFile
+    local fontFile = addon:ResolveMediaPath("font", addon.db.fontFace, baseFile)
     local outlineFlags = FONT_OUTLINE_FLAGS[addon.db.fontOutline]
     local fontFlags = outlineFlags ~= nil and outlineFlags or baseFlags
     if fontFile and fontHeight then
+        fontHeight = math.max(8, tonumber(addon.db.fontSize) or fontHeight)
         fontString:SetFont(fontFile, fontHeight, fontFlags)
     end
 
@@ -159,6 +164,66 @@ local function ApplySelectedFont(addon, fontString, baseFontObject)
         )
         fontString:SetShadowOffset(baseShadowX or 0, baseShadowY or 0)
     end
+end
+
+local function ApplyProgressBarAppearance(addon, progressBar)
+    if not addon or not progressBar then
+        return
+    end
+
+    progressBar:SetStatusBarTexture(addon:ResolveMediaPath(
+        "statusbar",
+        addon.db.progressBarTexture,
+        "Interface\\TargetingFrame\\UI-StatusBar"
+    ))
+    local color = addon.db.progressBarColor or {}
+    progressBar:SetStatusBarColor(
+        tonumber(color.r) or 0.26,
+        tonumber(color.g) or 0.42,
+        tonumber(color.b) or 1
+    )
+    local backgroundOpacity = math.max(
+        0,
+        math.min(tonumber(addon.db.progressBarBackgroundOpacity) or 95, 100)
+    ) / 100
+    progressBar:SetBackdropColor(0.04, 0.07, 0.18, backgroundOpacity)
+end
+
+local function GetQuestTitleColor(addon, quest)
+    if quest.isFailed then
+        return 1, 0.25, 0.25
+    end
+
+    local color
+    if quest.readyForTurnIn or quest.isComplete then
+        color = addon.db.questCompleteColor
+    else
+        local questLevel = quest.level
+        local playerLevel = UnitLevel and UnitLevel("player") or nil
+        local threshold = tonumber(addon.db.questLowLevelThreshold) or -5
+        local isLowLevel = not IsSecret(questLevel)
+            and not IsSecret(playerLevel)
+            and type(questLevel) == "number"
+            and type(playerLevel) == "number"
+            and questLevel > 0
+            and playerLevel > 0
+            and questLevel - playerLevel <= threshold
+        color = isLowLevel and addon.db.questLowLevelColor or addon.db.questTitleColor
+    end
+    color = color or {}
+    return tonumber(color.r) or 1, tonumber(color.g) or 1, tonumber(color.b) or 1
+end
+
+local function GetQuestDisplayTitle(addon, quest)
+    local level = quest and quest.level
+    if addon.db.showQuestLevel
+        and not IsSecret(level)
+        and type(level) == "number"
+        and level > 0
+    then
+        return ("[%d] %s"):format(math.floor(level + 0.5), quest.title)
+    end
+    return quest.title
 end
 
 local function SetTrackerGeometry(state)
@@ -214,12 +279,11 @@ end
 
 local function HideBlizzardTracker(state)
     local tracker = state.blizzardTracker
-    if not state.stockVisualsHidden then
-        state.originalAlpha = tracker:GetAlpha()
-        state.stockVisualsHidden = true
+    if not tracker or type(tracker.SetAlpha) ~= "function" then
+        return
     end
-    if tracker:GetAlpha() ~= 0 then
-        tracker:SetAlpha(0)
+    if type(securecallfunction) == "function" then
+        securecallfunction(tracker.SetAlpha, tracker, 0)
     end
 end
 
@@ -829,6 +893,31 @@ local function CreateRow(state)
     row.findGroupButton = CreateFrame("Button", nil, row, "QuestObjectiveFindGroupButtonTemplate")
     row.findGroupButton:Hide()
 
+    row.professionSearchButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.professionSearchButton:SetSize(72, 20)
+    row.professionSearchButton:RegisterForClicks("LeftButtonUp")
+    row.professionSearchButton:SetScript("OnClick", function()
+        local search = GetAuctionatorTrackedRecipeSearch()
+        if not search or not IsAuctionHouseOpen() then
+            return
+        end
+        local ok = pcall(search)
+        if not ok then
+            state.addon:Print(state.addon.text.auctionatorSearchFailed)
+        end
+    end)
+    row.professionSearchButton:SetScript("OnEnter", function(button)
+        local tooltip = state.addon:GetTooltip()
+        tooltip:SetOwner(button, "ANCHOR_LEFT")
+        tooltip:SetText(state.addon.text.professionAuctionSearch, 1, 0.82, 0)
+        tooltip:AddLine(state.addon.text.professionAuctionSearchTooltip, 1, 1, 1, true)
+        tooltip:ShowTooltip()
+    end)
+    row.professionSearchButton:SetScript("OnLeave", function()
+        state.addon:HideTooltip()
+    end)
+    row.professionSearchButton:Hide()
+
     row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     row.text:SetJustifyH("LEFT")
     row.text:SetJustifyV("TOP")
@@ -1045,6 +1134,8 @@ local function AcquireRow(state)
     row.itemButton:ClearAllPoints()
     row.findGroupButton:Hide()
     row.findGroupButton:ClearAllPoints()
+    row.professionSearchButton:Hide()
+    row.professionSearchButton:ClearAllPoints()
     row.categoryBG:ClearAllPoints()
     row.cardFrame:ClearAllPoints()
     row.cardBG:ClearAllPoints()
@@ -1111,102 +1202,50 @@ local function AddCategoryRow(state, category, label)
     row.icon:SetSize(16, 16)
     row.icon:SetPoint("RIGHT", row, "RIGHT", -7, 0)
     row.icon:Show()
+    local textRightAnchor = row.icon
+    if category == PROFESSION_CATEGORY
+        and not state.editModeActive
+        and IsAuctionHouseOpen()
+        and GetAuctionatorTrackedRecipeSearch()
+    then
+        row.professionSearchButton:SetText(state.addon.text.professionAuctionSearch)
+        row.professionSearchButton:SetPoint("RIGHT", row.icon, "LEFT", -3, 0)
+        row.professionSearchButton:Enable()
+        row.professionSearchButton:Show()
+        textRightAnchor = row.professionSearchButton
+    end
     local textOffset = GetSafeNumber(state.addon.db.categoryTextOffset, 0)
     if state.addon.db.categoryStyle == "blizzard" then
         local textureOffset = GetSafeNumber(state.addon.db.categoryOffset, 0)
         row.categoryBG:SetPoint("CENTER", row, "CENTER", 0, textureOffset)
         row.categoryBG:Show()
         row.text:SetPoint("LEFT", row.categoryBG, "LEFT", 7 + textOffset, -textureOffset)
-        row.text:SetPoint("RIGHT", row.icon, "LEFT", -3, -textureOffset)
+        row.text:SetPoint("RIGHT", textRightAnchor, "LEFT", -3, -textureOffset)
     else
         row.text:SetPoint("LEFT", row, "LEFT", 5 + textOffset, 0)
-        row.text:SetPoint("RIGHT", row.icon, "LEFT", -3, 0)
+        row.text:SetPoint("RIGHT", textRightAnchor, "LEFT", -3, 0)
     end
     PlaceRow(state, row, CATEGORY_HEIGHT)
 end
 
 -- UIWidgetContainerMixin:RegisterForWidgetSet normally registers every
--- container in the global UIWidgetManager and ProcessWidget mutates its shared
--- processingUnit. Calling those paths from addon code permanently taints the
--- manager; a later Blizzard-only map tooltip can then fail when its widget
--- measures secret text. These instance-local implementations retain the
--- native widget templates without writing to either shared manager field.
+-- container in the global UIWidgetManager. Keep registration instance-local,
+-- but let Blizzard's original ProcessWidget execute behind a secure boundary.
+-- Reimplementing ProcessWidget still called each widget template's Setup from
+-- addon execution, which could taint shared template/font state before a map
+-- tooltip measured secret text.
+local NativeProcessWidget = UIWidgetContainerMixin
+    and UIWidgetContainerMixin.ProcessWidget
+
 local function ProcessIsolatedWidget(widgetContainer, widgetID, widgetType)
-    local widgetTypeInfo = UIWidgetManager and UIWidgetManager:GetWidgetTypeInfo(widgetType)
-    if not widgetTypeInfo then
+    if type(NativeProcessWidget) ~= "function" then
         return
     end
 
-    local widgetInfo = widgetTypeInfo.visInfoDataFunction(widgetID)
-    local widgetFrame = widgetContainer.widgetFrames[widgetID]
-    local widgetAlreadyExisted = widgetFrame ~= nil
-
-    if widgetAlreadyExisted and widgetFrame.widgetType ~= widgetType then
-        widgetContainer:RemoveWidget(widgetID)
-        widgetAlreadyExisted = false
-    end
-
-    local oldOrderIndex
-    local oldLayoutDirection
-    local isNewWidget = false
-    if widgetAlreadyExisted then
-        if not widgetInfo then
-            widgetFrame:AnimOut()
-            widgetFrame.markedForRemove = nil
-            return
-        end
-        oldOrderIndex = widgetFrame.orderIndex
-        oldLayoutDirection = widgetFrame.layoutDirection
-        widgetFrame.markedForRemove = nil
+    if type(securecallfunction) == "function" then
+        securecallfunction(NativeProcessWidget, widgetContainer, widgetID, widgetType)
     else
-        if not widgetInfo then
-            return
-        end
-        widgetFrame = widgetContainer:CreateWidget(
-            widgetID,
-            widgetType,
-            widgetTypeInfo,
-            widgetInfo
-        )
-        isNewWidget = true
-    end
-
-    local setupInfo = widgetInfo
-    local statusBarType = Enum
-        and Enum.UIWidgetVisualizationType
-        and Enum.UIWidgetVisualizationType.StatusBar
-    if widgetContainer.bqlUseNeutralStatusBarFrame
-        and statusBarType
-        and widgetType == statusBarType
-    then
-        -- Some objective-tracker events use a themed status-bar border whose
-        -- right cap is an empty circular socket. StatusBar widget data has no
-        -- icon field, so the missing artwork cannot be restored from the API.
-        -- Keep Blizzard's native widget and values, but use its neutral frame
-        -- kit for this container. A proxy avoids mutating Blizzard's data table
-        -- (which can contain protected values during combat).
-        setupInfo = setmetatable({
-            frameTextureKit = "widgetstatusbar",
-        }, {
-            __index = widgetInfo,
-        })
-        widgetFrame.bqlNeutralStatusBarFrame = true
-    else
-        widgetFrame.bqlNeutralStatusBarFrame = nil
-    end
-
-    widgetFrame:Setup(setupInfo, widgetContainer)
-    if isNewWidget then
-        widgetFrame:ApplyEffects(widgetInfo)
-    end
-    if isNewWidget and widgetFrame.OnAcquired then
-        widgetFrame:OnAcquired(widgetInfo)
-    end
-
-    if oldOrderIndex ~= widgetFrame.orderIndex
-        or oldLayoutDirection ~= widgetFrame.layoutDirection
-    then
-        widgetContainer:MarkDirtyLayout()
+        NativeProcessWidget(widgetContainer, widgetID, widgetType)
     end
 end
 
@@ -1281,6 +1320,11 @@ local function LayoutScenarioWidgets(widgetContainer, widgets)
     local width = 1
     local height = 0
     local spacing = GetSafeNumber(widgetContainer.verticalAnchorYOffset, 0)
+    local overlapDirection = Enum
+        and Enum.UIWidgetSetLayoutDirection
+        and Enum.UIWidgetSetLayoutDirection.Overlap
+    local usesOverlapLayout = overlapDirection ~= nil
+        and widgetContainer.widgetSetLayoutDirection == overlapDirection
 
     if widgetContainer.horizontalRowContainerPool then
         widgetContainer.horizontalRowContainerPool:ReleaseAll()
@@ -1300,13 +1344,23 @@ local function LayoutScenarioWidgets(widgetContainer, widgets)
 
         widget:ClearAllPoints()
         widget:SetParent(widgetContainer)
-        widget:SetPoint("TOPLEFT", widgetContainer, "TOPLEFT", 0, -height)
+        widget:SetPoint(
+            "TOPLEFT",
+            widgetContainer,
+            "TOPLEFT",
+            0,
+            usesOverlapLayout and 0 or -height
+        )
         widget:SetFrameLevel(widgetContainer:GetFrameLevel() + index)
 
         width = math.max(width, GetSafeNumber(widget:GetWidth(), 1))
-        height = height + GetSafeNumber(widget:GetHeight(), 1)
-        if index < #widgets then
-            height = height + spacing
+        if usesOverlapLayout then
+            height = math.max(height, GetSafeNumber(widget:GetHeight(), 1))
+        else
+            height = height + GetSafeNumber(widget:GetHeight(), 1)
+            if index < #widgets then
+                height = height + spacing
+            end
         end
     end
 
@@ -1657,59 +1711,6 @@ local function AddScenarioCard(state, scenario)
     PlaceRow(state, row, 83)
 end
 
--- Diagnostics may inspect Blizzard's module, but runtime rendering must never
--- reparent, anchor, show, hide, or relayout it. Those writes taint the module
--- before LayoutContents reads secret aura data in combat.
-local function GetNativeScenarioModule(state)
-    local module = state.nativeScenarioModule or _G.ScenarioObjectiveTracker
-    if not module then
-        return nil
-    end
-
-    if not state.nativeScenarioModule then
-        state.nativeScenarioModule = module
-    end
-    return module
-end
-
-local function IsNativeScenarioProtected(module)
-    if not module or type(module.IsProtected) ~= "function" then
-        return false
-    end
-
-    local ok, protected = pcall(module.IsProtected, module)
-    return ok and not IsSecret(protected) and protected and true or false
-end
-
-local function HasNativeScenarioContents(state)
-    local module = GetNativeScenarioModule(state)
-    if not module then
-        return false
-    end
-
-    if type(module.IsDisplayable) == "function" then
-        local ok, displayable = pcall(module.IsDisplayable, module)
-        if ok and not IsSecret(displayable) and not displayable then
-            return false
-        end
-    end
-
-    if type(module.HasContents) == "function" then
-        local ok, hasContents = pcall(module.HasContents, module)
-        if ok and not IsSecret(hasContents) then
-            return hasContents and true or false
-        end
-    end
-
-    local okShown, shown = pcall(module.IsShown, module)
-    local okHeight, height = pcall(module.GetHeight, module)
-    return okShown
-        and shown
-        and not IsSecret(shown)
-        and okHeight
-        and GetSafeNumber(height, 0) > 1
-end
-
 local function AddObjectiveWidgetRow(state)
     local row = AcquireRow(state)
     row:EnableMouse(false)
@@ -1733,14 +1734,11 @@ local function AddQuestTitleRow(state, quest)
     local isInteractive = quest.questID ~= nil or quest.kind ~= nil
     row:EnableMouse(isInteractive and not state.editModeActive)
     ApplySelectedFont(state.addon, row.text, "ObjectiveTrackerLineFont")
-    if quest.isFailed then
-        row.text:SetTextColor(1, 0.25, 0.25)
-    elseif quest.readyForTurnIn then
-        row.text:SetTextColor(0.3, 1, 0.3)
-    else
-        row.text:SetTextColor(1, 1, 1)
-    end
-    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", QUEST_TEXT_LEFT, -2)
+    row.text:SetTextColor(GetQuestTitleColor(state.addon, quest))
+    local titleOffsetX = GetSafeNumber(state.addon.db.questTitleOffsetX, 0)
+    local titleOffsetY = GetSafeNumber(state.addon.db.questTitleOffsetY, 0)
+    local titleLeft = QUEST_TEXT_LEFT + titleOffsetX
+    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", titleLeft, -2 + titleOffsetY)
     local rightInset = 5
     if quest.showsItem and quest.questLogIndex and row.itemButton.SetUp then
         row.itemButton:SetUp(quest.questLogIndex)
@@ -1756,10 +1754,10 @@ local function AddQuestTitleRow(state, quest)
         row.findGroupButton:Show()
         rightInset = rightInset + 32
     end
-    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - QUEST_TEXT_LEFT - rightInset, 1))
+    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - titleLeft - rightInset, 1))
     row.text:SetMaxLines(0)
     row.text:SetHeight(0)
-    row.text:SetText(quest.title)
+    row.text:SetText(GetQuestDisplayTitle(state.addon, quest))
 
     row.questID = quest.questID
     row.entry = quest
@@ -1783,13 +1781,57 @@ local function AddQuestTitleRow(state, quest)
     if showContentPOI or (quest.questID and showQuestPOI) then
         row.poiButton.entry = quest
         UpdatePOIButton(row.poiButton)
-        row.poiButton:SetPoint("TOPRIGHT", row.text, "TOPLEFT", -7, 5)
+        local iconOffsetX = GetSafeNumber(state.addon.db.questIconOffsetX, 0)
+        local iconOffsetY = GetSafeNumber(state.addon.db.questIconOffsetY, 0)
+        row.poiButton:SetPoint(
+            "TOPRIGHT",
+            row,
+            "TOPLEFT",
+            QUEST_TEXT_LEFT - 7 + iconOffsetX,
+            3 + iconOffsetY
+        )
         row.poiButton:EnableMouse(not state.editModeActive)
         row.poiButton:Show()
     end
 
     local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
-    PlaceRow(state, row, math.max(MIN_ROW_HEIGHT + 2, textHeight + 6))
+    local downwardOffset = math.max(0, -titleOffsetY)
+    PlaceRow(state, row, math.max(MIN_ROW_HEIGHT + 2, textHeight + 6 + downwardOffset))
+end
+
+local function AddQuestLocationRow(state, quest)
+    if not state.addon.db.showQuestLocation
+        or quest.category ~= "QuestObjectiveTracker"
+        or type(quest.location) ~= "string"
+        or quest.location == ""
+    then
+        return false
+    end
+
+    local row = AcquireRow(state)
+    row:EnableMouse(false)
+    ApplySelectedFont(state.addon, row.text, "ObjectiveTrackerLineFont")
+
+    local color = state.addon.db.questLocationColor or {}
+    row.text:SetTextColor(
+        tonumber(color.r) or 0.65,
+        tonumber(color.g) or 0.65,
+        tonumber(color.b) or 0.65
+    )
+
+    local locationOffsetX = GetSafeNumber(state.addon.db.questLocationOffsetX, 0)
+    local locationOffsetY = GetSafeNumber(state.addon.db.questLocationOffsetY, 0)
+    local locationLeft = QUEST_TEXT_LEFT + locationOffsetX
+    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", locationLeft, -2 + locationOffsetY)
+    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - locationLeft - 5, 1))
+    row.text:SetMaxLines(0)
+    row.text:SetHeight(0)
+    row.text:SetText(quest.location)
+
+    local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
+    local downwardOffset = math.max(0, -locationOffsetY)
+    PlaceRow(state, row, math.max(MIN_ROW_HEIGHT, textHeight + 5 + downwardOffset))
+    return true
 end
 
 
@@ -1828,10 +1870,19 @@ local function AddObjectiveRow(state, quest, objective)
         row.icon:SetAtlas("ui-questtracker-objective-nub", false)
     end
 
-    row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", QUEST_TEXT_LEFT, -4)
+    local objectiveOffsetX = GetSafeNumber(state.addon.db.questObjectiveOffsetX, 0)
+    local objectiveOffsetY = GetSafeNumber(state.addon.db.questObjectiveOffsetY, 0)
+    local objectiveLeft = OBJECTIVE_TEXT_LEFT + objectiveOffsetX
+    row.icon:SetPoint(
+        "TOPLEFT",
+        row,
+        "TOPLEFT",
+        QUEST_TEXT_LEFT + objectiveOffsetX,
+        -4 + objectiveOffsetY
+    )
     row.icon:Show()
-    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -2)
-    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - OBJECTIVE_TEXT_LEFT - 5, 1))
+    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", objectiveLeft, -2 + objectiveOffsetY)
+    row.text:SetWidth(math.max(GetSafeNumber(row:GetWidth(), 200) - objectiveLeft - 5, 1))
     row.text:SetMaxLines(0)
     row.text:SetHeight(0)
     row.text:SetText(objective.text)
@@ -1842,7 +1893,10 @@ local function AddObjectiveRow(state, quest, objective)
     row.canUntrack = quest.questID ~= nil and CanUntrackCategory(quest.category)
 
     local textHeight = GetSafeNumber(row.text:GetHeight(), MIN_ROW_HEIGHT)
-    local rowHeight = math.max(MIN_ROW_HEIGHT, textHeight + 5)
+    local rowHeight = math.max(
+        MIN_ROW_HEIGHT,
+        textHeight + 5 + math.max(0, -objectiveOffsetY)
+    )
     -- Completed weighted objectives keep their descriptive text, but no longer
     -- need a full 100% bar. This also covers a completed progress stage inside
     -- a quest or scenario that still has later objectives to display.
@@ -1855,8 +1909,8 @@ local function AddObjectiveRow(state, quest, objective)
                 "TOPLEFT",
                 row,
                 "TOPLEFT",
-                OBJECTIVE_TEXT_LEFT - 10,
-                -(textHeight + 3)
+                objectiveLeft - 10,
+                objectiveOffsetY - textHeight - 3
             )
             bar:SetValue(progress)
             if bar.Label then
@@ -1867,9 +1921,20 @@ local function AddObjectiveRow(state, quest, objective)
             rowHeight = rowHeight + math.max(GetSafeNumber(scenarioProgress:GetHeight(), 38), 38)
         else
             ApplySelectedFont(state.addon, row.progress.label, "ObjectiveTrackerLineFont")
-            row.progress:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -(textHeight + 5))
+            ApplyProgressBarAppearance(state.addon, row.progress)
+            row.progress:SetPoint(
+                "TOPLEFT",
+                row,
+                "TOPLEFT",
+                objectiveLeft,
+                objectiveOffsetY - textHeight - 5
+            )
             row.progress:SetPoint("RIGHT", row, "RIGHT", -12, 0)
-            row.progress:SetHeight(15)
+            local progressBarHeight = math.max(
+                8,
+                math.min(tonumber(state.addon.db.progressBarHeight) or 15, 28)
+            )
+            row.progress:SetHeight(progressBarHeight)
             row.progress:SetValue(progress)
             if objective.progressText then
                 row.progress.label:SetText(objective.progressText)
@@ -1877,7 +1942,7 @@ local function AddObjectiveRow(state, quest, objective)
                 row.progress.label:SetFormattedText(PERCENTAGE_STRING, progress)
             end
             row.progress:Show()
-            rowHeight = rowHeight + 20
+            rowHeight = rowHeight + progressBarHeight + 5
         end
     end
     PlaceRow(state, row, rowHeight)
@@ -2064,11 +2129,10 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(physicalWidth),
         DebugValue(physicalHeight)
     )
-    lines[#lines + 1] = ("contentHeight=%s usedRows=%s widgetUsed=%s nativeScenarioUsed=%s"):format(
+    lines[#lines + 1] = ("contentHeight=%s usedRows=%s widgetUsed=%s"):format(
         DebugValue(state.contentHeight),
         DebugValue(state.usedRows),
-        DebugValue(state.scenarioWidgetUsed),
-        DebugValue(state.nativeScenarioUsed)
+        DebugValue(state.scenarioWidgetUsed)
     )
     lines[#lines + 1] = ("appearance font=%s outline=%s shadow=%s background=%s"):format(
         DebugValue(self.db.font),
@@ -2161,41 +2225,15 @@ function BQL:CollectCustomDebugInfo()
         )
     end
 
-    local nativeScenario = GetNativeScenarioModule(state)
-    lines[#lines + 1] = ("nativeScenario available=%s hasContents=%s protected=%s attached=%s"):format(
-        DebugValue(nativeScenario ~= nil),
-        DebugValue(HasNativeScenarioContents(state)),
-        DebugValue(IsNativeScenarioProtected(nativeScenario)),
-        DebugValue(state.nativeScenarioAttached)
-    )
-
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Tracker geometry"
+    lines[#lines + 1] = ("customAlpha=%s"):format(
+        DebugValue(state.frame and state.frame:GetAlpha())
+    )
     DescribeDebugRegion(lines, "UIParent", UIParent)
-    DescribeDebugRegion(lines, "BlizzardTracker", state.blizzardTracker)
     DescribeDebugRegion(lines, "CustomFrame", state.frame)
     DescribeDebugRegion(lines, "ScrollFrame", state.scrollFrame)
     DescribeDebugRegion(lines, "ScrollContent", state.content)
-    DescribeDebugRegion(lines, "NativeScenarioRow", state.nativeScenarioRow)
-    DescribeDebugRegion(lines, "NativeScenarioModule", nativeScenario)
-    DescribeDebugRegion(lines, "NativeScenarioContents", nativeScenario and nativeScenario.ContentsFrame)
-    local nativeStageBlock = nativeScenario and nativeScenario.StageBlock
-    local nativeStageWidgets = nativeStageBlock and nativeStageBlock.WidgetContainer
-    DescribeDebugRegion(lines, "NativeScenarioStageBlock", nativeStageBlock)
-    DescribeDebugRegion(lines, "NativeScenarioStageWidgets", nativeStageWidgets)
-    lines[#lines + 1] = ("nativeStageWidgets widgetSetID=%s direction=%s widgetCount=%s layoutScheduled=%s"):format(
-        DebugValue(nativeStageWidgets and nativeStageWidgets.widgetSetID),
-        DebugValue(nativeStageWidgets and nativeStageWidgets.widgetSetLayoutDirection),
-        DebugValue(nativeStageWidgets
-            and nativeStageWidgets.GetNumWidgetsShowing
-            and nativeStageWidgets:GetNumWidgetsShowing()),
-        DebugValue(state.nativeScenarioStageLayoutScheduled)
-    )
-    if nativeStageWidgets and nativeStageWidgets.widgetFrames then
-        for widgetID, widget in pairs(nativeStageWidgets.widgetFrames) do
-            DescribeDebugRegion(lines, ("NativeStageWidget[%s]"):format(DebugValue(widgetID)), widget)
-        end
-    end
     DescribeDebugRegion(lines, "ScenarioRow", state.scenarioWidgetRow)
     DescribeDebugRegion(lines, "FallbackScenarioWidgetContainer", state.scenarioWidgetContainer)
     DescribeDebugRegion(lines, "ObjectiveWidgetContainer", state.objectiveWidgetContainer)
@@ -2394,7 +2432,6 @@ function BQL:RenderCustomTracker()
     state.contentHeight = 0
     state.scenarioWidgetUsed = false
     state.scenarioWidgetRow = nil
-    state.nativeScenarioUsed = false
     state.objectiveWidgetUsed = false
     state.enhanceQoLDamageMeterRows = {}
     state.enhanceQoLDamageMeterFrames = {}
@@ -2445,6 +2482,9 @@ function BQL:RenderCustomTracker()
                                 AddEnhanceQoLMythicPlusTimerRow(state)
                             else
                                 AddQuestTitleRow(state, quest)
+                            end
+                            if not IsExternalFrameEntry(quest) then
+                                AddQuestLocationRow(state, quest)
                             end
                             if not IsExternalFrameEntry(quest)
                                 and #(quest.objectives or {}) > 0
@@ -2563,6 +2603,7 @@ function BQL:ApplyCustomAppearance(refresh)
         ApplySelectedFont(self, row.cardStage, "Game18Font")
         ApplySelectedFont(self, row.cardName, "GameFontNormal")
         ApplySelectedFont(self, row.progress.label, "ObjectiveTrackerLineFont")
+        ApplyProgressBarAppearance(self, row.progress)
         if row.scenarioProgress and row.scenarioProgress.Bar and row.scenarioProgress.Bar.Label then
             ApplySelectedFont(self, row.scenarioProgress.Bar.Label, "GameFontHighlightMedium")
         end
@@ -2632,8 +2673,6 @@ function BQL:InitializeCustomTracker()
     objectiveWidgetContainer:SetAlpha(0)
     objectiveWidgetContainer:Show()
 
-    local nativeScenarioModule = _G.ScenarioObjectiveTracker
-
     self.customAchievementTimers = self.customAchievementTimers or {}
     self.customState = {
         addon = self,
@@ -2647,7 +2686,6 @@ function BQL:InitializeCustomTracker()
         content = content,
         scenarioWidgetContainer = scenarioWidgetContainer,
         objectiveWidgetContainer = objectiveWidgetContainer,
-        nativeScenarioModule = nativeScenarioModule,
         completedScenarioCriteria = {},
         rows = {},
         usedRows = 0,
@@ -2689,6 +2727,25 @@ function BQL:InitializeCustomTracker()
         end
         content:SetWidth(math.max(width, 1))
         self:RequestCustomRefresh(false)
+    end)
+
+    -- Blizzard may restore ObjectiveTrackerFrame's alpha after a scenario or
+    -- map update. Reassert the visual replacement from an addon-owned update
+    -- script instead of hooking Blizzard's Show/SetAlpha methods, which would
+    -- put BetterQuestList back into their execution chain.
+    frame:SetScript("OnUpdate", function(_, elapsed)
+        local state = self.customState
+        if not state then
+            return
+        end
+        state.stockHideElapsed = (state.stockHideElapsed or 0) + elapsed
+        if state.stockHideElapsed >= 0.1 then
+            state.stockHideElapsed = 0
+            HideBlizzardTracker(state)
+            if state.editModeActive and self.SuppressBlizzardTrackerEditModeSelection then
+                self:SuppressBlizzardTrackerEditModeSelection()
+            end
+        end
     end)
 
     scenarioWidgetContainer:HookScript("OnSizeChanged", function()
@@ -2739,6 +2796,8 @@ function BQL:InitializeCustomTracker()
         "NEIGHBORHOOD_INITIATIVE_UPDATED",
         "CURRENCY_DISPLAY_UPDATE",
         "TRACKED_RECIPE_UPDATE",
+        "PLAYER_INTERACTION_MANAGER_FRAME_SHOW",
+        "PLAYER_INTERACTION_MANAGER_FRAME_HIDE",
         "BAG_UPDATE_DELAYED",
         "ITEM_DATA_LOAD_RESULT",
         "QUEST_AUTOCOMPLETE",

@@ -41,6 +41,107 @@ BQL.FONT_OUTLINE_CHOICES = { "default", "none", "outline", "thick" }
 BQL.FONT_SHADOW_CHOICES = { "default", "enabled", "disabled" }
 BQL.BACKGROUND_CHOICES = { "none", "subtle", "dark" }
 BQL.CATEGORY_STYLE_CHOICES = { "blizzard", "plain" }
+BQL.PROGRESS_BAR_STYLE_CHOICES = { "blizzard", "smooth", "flat" }
+
+local BUILTIN_MEDIA = {
+    font = {
+        ["2002"] = "Fonts\\2002.TTF",
+        ["2002 Bold"] = "Fonts\\2002B.TTF",
+        ["AR CrystalzcuheiGBK Demibold"] = "Fonts\\ARHei.TTF",
+        ["AR ZhongkaiGBK Medium (Combat)"] = "Fonts\\ARKai_C.TTF",
+        ["AR ZhongkaiGBK Medium"] = "Fonts\\ARKai_T.TTF",
+        ["Arial Narrow"] = "Fonts\\ARIALN.TTF",
+        ["Friz Quadrata TT"] = GetLocale() == "ruRU"
+            and "Fonts\\FRIZQT___CYR.TTF"
+            or "Fonts\\FRIZQT__.TTF",
+        ["MoK"] = "Fonts\\K_Pagetext.TTF",
+        ["Morpheus"] = GetLocale() == "ruRU"
+            and "Fonts\\MORPHEUS_CYR.TTF"
+            or "Fonts\\MORPHEUS.TTF",
+        ["Nimrod MT"] = "Fonts\\NIM_____.ttf",
+        ["Skurri"] = GetLocale() == "ruRU"
+            and "Fonts\\SKURRI_CYR.TTF"
+            or "Fonts\\SKURRI.TTF",
+    },
+    statusbar = {
+        ["Blizzard"] = "Interface\\TargetingFrame\\UI-StatusBar",
+        ["Blizzard Character Skills Bar"] =
+            "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar",
+        ["Blizzard Raid Bar"] = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill",
+        ["Solid"] = "Interface\\Buttons\\WHITE8X8",
+    },
+}
+
+local function GetSharedMedia()
+    if type(LibStub) ~= "table" and type(LibStub) ~= "function" then
+        return nil
+    end
+    return LibStub("LibSharedMedia-3.0", true)
+end
+
+function BQL:GetMediaChoices(mediaType, includeBlizzardDefault)
+    local names = {}
+    local seen = {}
+    local function AddName(name)
+        if type(name) == "string" and name ~= "" and not seen[name] then
+            seen[name] = true
+            names[#names + 1] = name
+        end
+    end
+
+    for name in pairs(BUILTIN_MEDIA[mediaType] or {}) do
+        AddName(name)
+    end
+    local sharedMedia = GetSharedMedia()
+    local hash = sharedMedia
+        and sharedMedia.HashTable
+        and sharedMedia:HashTable(mediaType)
+    for name in pairs(hash or {}) do
+        AddName(name)
+    end
+    table.sort(names, function(left, right)
+        local leftLower = left:lower()
+        local rightLower = right:lower()
+        return leftLower == rightLower and left < right or leftLower < rightLower
+    end)
+
+    local choices = {}
+    if includeBlizzardDefault then
+        choices[1] = {
+            value = "__blizzard",
+            label = self.text and self.text.fontDefault or "Blizzard default",
+        }
+    end
+    for _, name in ipairs(names) do
+        choices[#choices + 1] = { value = name, label = name }
+    end
+    return choices
+end
+
+function BQL:ResolveMediaPath(mediaType, name, fallback)
+    if name == "__blizzard" or type(name) ~= "string" or name == "" then
+        return fallback
+    end
+    local sharedMedia = GetSharedMedia()
+    if sharedMedia and sharedMedia.Fetch then
+        local resolved = sharedMedia:Fetch(mediaType, name, true)
+        if type(resolved) == "string" and resolved ~= "" then
+            return resolved
+        end
+    end
+    return (BUILTIN_MEDIA[mediaType] and BUILTIN_MEDIA[mediaType][name]) or fallback
+end
+
+function BQL:GetLegacyFontFace(value)
+    if value == "chat" then
+        return GetLocale() == "ruRU" and "Nimrod MT" or "Arial Narrow"
+    elseif value == "quest" then
+        return "Morpheus"
+    elseif value == "system" then
+        return "Skurri"
+    end
+    return "__blizzard"
+end
 
 local function IsChoiceValid(choices, value)
     for _, choice in ipairs(choices) do
@@ -645,6 +746,98 @@ function BQL:Initialize()
     if not IsChoiceValid(self.CATEGORY_STYLE_CHOICES, self.db.categoryStyle) then
         self.db.categoryStyle = "blizzard"
     end
+    if type(self.db.fontFace) ~= "string" or self.db.fontFace == "" then
+        self.db.fontFace = self:GetLegacyFontFace(self.db.font)
+    end
+    if type(self.db.fontSize) ~= "number" then
+        local defaultFontSize = 13
+        if ObjectiveTrackerLineFont and ObjectiveTrackerLineFont.GetFont then
+            local _, currentSize = ObjectiveTrackerLineFont:GetFont()
+            if type(currentSize) == "number" then
+                defaultFontSize = currentSize
+            end
+        end
+        self.db.fontSize = defaultFontSize + (tonumber(self.db.fontSizeOffset) or 0)
+    end
+    self.db.fontSize = math.max(8, math.min(math.floor(self.db.fontSize + 0.5), 32))
+    self.db.fontSizeOffset = nil
+    if type(self.db.showQuestLevel) ~= "boolean" then
+        self.db.showQuestLevel = false
+    end
+    if type(self.db.showQuestLocation) ~= "boolean" then
+        self.db.showQuestLocation = true
+    end
+    if type(self.db.questLocationColor) ~= "table" then
+        self.db.questLocationColor = { r = 0.65, g = 0.65, b = 0.65 }
+    end
+    for _, component in ipairs({ "r", "g", "b" }) do
+        local value = tonumber(self.db.questLocationColor[component]) or 0.65
+        self.db.questLocationColor[component] = math.max(0, math.min(value, 1))
+    end
+    if type(self.db.questTitleColor) ~= "table" then
+        self.db.questTitleColor = { r = 1, g = 1, b = 1 }
+    end
+    for _, component in ipairs({ "r", "g", "b" }) do
+        local value = tonumber(self.db.questTitleColor[component]) or 1
+        self.db.questTitleColor[component] = math.max(0, math.min(value, 1))
+    end
+    if type(self.db.questCompleteColor) ~= "table" then
+        self.db.questCompleteColor = { r = 0.3, g = 1, b = 0.3 }
+    end
+    if type(self.db.questLowLevelColor) ~= "table" then
+        self.db.questLowLevelColor = { r = 0.55, g = 0.55, b = 0.55 }
+    end
+    for _, color in ipairs({ self.db.questCompleteColor, self.db.questLowLevelColor }) do
+        for _, component in ipairs({ "r", "g", "b" }) do
+            local value = tonumber(color[component]) or 1
+            color[component] = math.max(0, math.min(value, 1))
+        end
+    end
+    if type(self.db.questLowLevelThreshold) ~= "number" then
+        self.db.questLowLevelThreshold = -5
+    end
+    self.db.questLowLevelThreshold = math.max(
+        -20,
+        math.min(math.floor(self.db.questLowLevelThreshold + 0.5), 0)
+    )
+    if not IsChoiceValid(self.PROGRESS_BAR_STYLE_CHOICES, self.db.progressBarStyle) then
+        self.db.progressBarStyle = "blizzard"
+    end
+    if type(self.db.progressBarTexture) ~= "string" or self.db.progressBarTexture == "" then
+        self.db.progressBarTexture = ({
+            blizzard = "Blizzard",
+            smooth = "Blizzard Raid Bar",
+            flat = "Solid",
+        })[self.db.progressBarStyle] or "Blizzard"
+    end
+    if type(self.db.progressBarHeight) ~= "number" then
+        self.db.progressBarHeight = 15
+    end
+    self.db.progressBarHeight = math.max(
+        8,
+        math.min(math.floor(self.db.progressBarHeight + 0.5), 28)
+    )
+    if type(self.db.progressBarColor) ~= "table" then
+        self.db.progressBarColor = { r = 0.26, g = 0.42, b = 1 }
+    end
+    for _, component in ipairs({ "r", "g", "b" }) do
+        local value = tonumber(self.db.progressBarColor[component])
+            or ({ r = 0.26, g = 0.42, b = 1 })[component]
+        self.db.progressBarColor[component] = math.max(0, math.min(value, 1))
+    end
+    if type(self.db.progressBarBackgroundOpacity) ~= "number" then
+        self.db.progressBarBackgroundOpacity = 95
+    end
+    self.db.progressBarBackgroundOpacity = math.max(
+        0,
+        math.min(math.floor(self.db.progressBarBackgroundOpacity + 0.5), 100)
+    )
+    if type(self.db.editModeCollapsedSections) ~= "table" then
+        self.db.editModeCollapsedSections = {
+            integrations = true,
+            categories = true,
+        }
+    end
     if self.db.appearanceSchemaVersion ~= 1 then
         if self.db.categoryOffset == nil then
             self.db.categoryOffset = 5
@@ -680,6 +873,22 @@ function BQL:Initialize()
         0,
         math.min(math.floor(self.db.questObjectiveSpacing + 0.5), 20)
     )
+    for _, setting in ipairs({
+        { key = "questIconOffsetX", minimum = -100, maximum = 100 },
+        { key = "questIconOffsetY", minimum = -50, maximum = 50 },
+        { key = "questTitleOffsetX", minimum = -100, maximum = 100 },
+        { key = "questTitleOffsetY", minimum = -50, maximum = 50 },
+        { key = "questLocationOffsetX", minimum = -100, maximum = 100 },
+        { key = "questLocationOffsetY", minimum = -50, maximum = 50 },
+        { key = "questObjectiveOffsetX", minimum = -100, maximum = 100 },
+        { key = "questObjectiveOffsetY", minimum = -50, maximum = 50 },
+    }) do
+        local value = tonumber(self.db[setting.key]) or 0
+        self.db[setting.key] = math.max(
+            setting.minimum,
+            math.min(math.floor(value + 0.5), setting.maximum)
+        )
+    end
     if type(self.db.enhanceQoLDamageMeterWindows) ~= "table" then
         self.db.enhanceQoLDamageMeterWindows = {
             tonumber(self.db.enhanceQoLDamageMeterWindow) or 0,

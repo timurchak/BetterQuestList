@@ -243,6 +243,33 @@ local function IsSingleInteractionQuest(objectives)
     return objective.type == "event"
 end
 
+local function ReadQuestLocation(questID, category, previousQuest)
+    if category ~= CATEGORY_QUESTS then
+        return nil
+    end
+
+    local previousLocation = previousQuest and previousQuest.location or nil
+    local headerIndex, headerAvailable = SafeCall(
+        C_QuestLog and C_QuestLog.GetHeaderIndexForQuest,
+        questID
+    )
+    if not headerAvailable or type(headerIndex) ~= "number" or headerIndex <= 0 then
+        return previousLocation
+    end
+
+    local headerInfo, infoAvailable = SafeCall(C_QuestLog and C_QuestLog.GetInfo, headerIndex)
+    if not infoAvailable then
+        return previousLocation
+    end
+
+    local location, locationAvailable = ReadField(headerInfo, "title")
+    if locationAvailable and type(location) == "string" and location ~= "" then
+        return location
+    end
+
+    return previousLocation
+end
+
 local function BuildQuest(addon, questID, category, previousQuest)
     local title, titleAvailable = SafeCall(C_QuestLog and C_QuestLog.GetTitleForQuestID, questID)
     if not titleAvailable or type(title) ~= "string" or title == "" then
@@ -253,6 +280,14 @@ local function BuildQuest(addon, questID, category, previousQuest)
     end
 
     local objectives, restricted = ReadObjectives(addon, questID, previousQuest)
+    local questLevel, levelAvailable = SafeCall(
+        C_QuestLog and C_QuestLog.GetQuestDifficultyLevel,
+        questID
+    )
+    if not levelAvailable or type(questLevel) ~= "number" then
+        questLevel = previousQuest and previousQuest.level or nil
+    end
+    local location = ReadQuestLocation(questID, category, previousQuest)
     local questClassification, classificationAvailable = SafeCall(
         C_QuestInfoSystem and C_QuestInfoSystem.GetQuestClassification,
         questID
@@ -416,6 +451,8 @@ local function BuildQuest(addon, questID, category, previousQuest)
         questID = questID,
         category = category,
         title = title,
+        level = questLevel,
+        location = location,
         objectives = objectives,
         readyForTurnIn = readyForTurnIn and true or false,
         isComplete = isComplete,
