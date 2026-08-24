@@ -10,12 +10,12 @@ Unlike full tracker replacements, BetterQuestList does not try to recreate every
 
 ## Roadmap
 
-EnhanceQoL Damage Meter integration is available now, including support for up to five independently assigned windows. Details! is the next planned combat meter integration.
+MythicPlusTimer and EnhanceQoL Mythic+ Timer can be placed directly in the tracker, while EnhanceQoL Damage Meter supports up to five independently assigned windows. Details! is the next planned combat meter integration.
 
 Planned areas of development include:
 
 - Details! DPS and combat meter integration.
-- Compatibility and integration with addons that replace or modify the Mythic+ timer.
+- Compatibility with more addons that replace or modify the Mythic+ timer.
 - Better interoperability with navigation and waypoint addons, including TomTom.
 - Additional integrations based on community feedback and real-world compatibility reports.
 
@@ -25,6 +25,8 @@ Planned areas of development include:
 - Keep that order after login, reloads, combat, and tracker updates.
 - Scroll long objective lists with the mouse wheel.
 - Display Blizzard-provided scenario UI and context-specific visuals for dungeons, Delves, events, and other scenarios.
+- Embed MythicPlusTimer or EnhanceQoL's Mythic+ Timer as an ordered tracker category.
+- Choose the Mythic+ timer source and adjust its row height through WoW Edit Mode.
 - Embed up to five EnhanceQoL Damage Meter windows as independently ordered tracker categories.
 - Assign each embedded EnhanceQoL window to its own category through WoW Edit Mode.
 - Rename every category heading while retaining localized defaults.

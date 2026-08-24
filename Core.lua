@@ -15,6 +15,13 @@ BQL.DAMAGE_METER_CATEGORIES = {
 }
 BQL.LEGACY_DAMAGE_METER_CATEGORY = "EnhanceQoLDamageMeter"
 BQL.ENHANCEQOL_MYTHIC_TIMER_CATEGORY = "EnhanceQoLMythicPlusTimer"
+BQL.MYTHIC_PLUS_TIMER_CATEGORY = BQL.ENHANCEQOL_MYTHIC_TIMER_CATEGORY
+BQL.MYTHIC_PLUS_TIMER_SOURCE_CHOICES = {
+    "auto",
+    "mythicPlusTimer",
+    "enhanceQoL",
+    "disabled",
+}
 
 BQL.DEFAULT_ORDER = {
     "EnhanceQoLMythicPlusTimer",
@@ -337,12 +344,40 @@ function BQL:IsCategoryCollapsed(name)
         and self.db.collapsedCategories[name] == true
 end
 
+function BQL:IsCategoryHeaderHidden(name)
+    return self.db
+        and type(self.db.hiddenCategoryHeaders) == "table"
+        and self.db.hiddenCategoryHeaders[name] == true
+end
+
+function BQL:SetCategoryHeaderHidden(name, hidden)
+    if not self.db or type(name) ~= "string" or name == "" then
+        return false
+    end
+    if type(self.db.hiddenCategoryHeaders) ~= "table" then
+        self.db.hiddenCategoryHeaders = {}
+    end
+
+    local shouldHide = hidden and true or false
+    if (self.db.hiddenCategoryHeaders[name] == true) == shouldHide then
+        return false
+    end
+    self.db.hiddenCategoryHeaders[name] = shouldHide and true or nil
+    if self.RequestCustomRefresh then
+        self:RequestCustomRefresh(false)
+    end
+    return true
+end
+
 function BQL:ToggleCategoryCollapsed(name)
     if not self.db or type(name) ~= "string" or name == "" then
         return
     end
     if type(self.db.collapsedCategories) ~= "table" then
         self.db.collapsedCategories = {}
+    end
+    if type(self.db.hiddenCategoryHeaders) ~= "table" then
+        self.db.hiddenCategoryHeaders = {}
     end
     local hasMythicTimerCategory = false
     local scenarioCategoryIndex
@@ -721,6 +756,15 @@ function BQL:Initialize()
     else
         self.db.activeQuestItemEnabled = self.db.activeQuestItemEnabled and true or false
     end
+    if type(self.db.mythicPlusHideOtherCategories) ~= "boolean" then
+        self.db.mythicPlusHideOtherCategories = false
+    end
+    if type(self.db.mythicPlusCollapseOtherCategories) ~= "boolean" then
+        self.db.mythicPlusCollapseOtherCategories = false
+    end
+    if type(self.db.mythicPlusRaidHideTracker) ~= "boolean" then
+        self.db.mythicPlusRaidHideTracker = false
+    end
     if type(self.db.enhanceQoLMythicPlusTimerHeight) ~= "number" then
         self.db.enhanceQoLMythicPlusTimerHeight = 0
     end
@@ -728,6 +772,19 @@ function BQL:Initialize()
         0,
         math.min(math.floor(self.db.enhanceQoLMythicPlusTimerHeight + 0.5), 600)
     )
+    for _, key in ipairs({
+        "mythicPlusTimerOffsetX",
+        "mythicPlusTimerOffsetY",
+    }) do
+        local value = tonumber(self.db[key]) or 0
+        self.db[key] = math.max(-100, math.min(math.floor(value + 0.5), 100))
+    end
+    if not IsChoiceValid(
+        self.MYTHIC_PLUS_TIMER_SOURCE_CHOICES,
+        self.db.mythicPlusTimerSource
+    ) then
+        self.db.mythicPlusTimerSource = "auto"
+    end
     if type(self.db.scrollStep) ~= "number" then
         self.db.scrollStep = 45
     end
@@ -919,7 +976,7 @@ function BQL:Initialize()
     self:CreateOptions()
     self:InitializeCustomTracker()
     self:InitializeEnhanceQoLDamageMeterIntegration()
-    self:InitializeEnhanceQoLMythicPlusTimerIntegration()
+    self:InitializeMythicPlusTimerIntegration()
     self:InitializeActiveQuestItem()
     self:InitializeEditModeIntegration()
     self:Print(self.text.customMode)

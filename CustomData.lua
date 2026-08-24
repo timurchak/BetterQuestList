@@ -1691,11 +1691,11 @@ function BQL:BuildCustomSnapshot(previousSnapshot)
     categories[CATEGORY_WIDGETS] = widgetCategory
     snapshot.restricted = snapshot.restricted or widgetRestricted
 
-    local mythicTimerEntry = self.GetEnhanceQoLMythicPlusTimerEntry
-        and self:GetEnhanceQoLMythicPlusTimerEntry()
+    local mythicTimerEntry = self.GetMythicPlusTimerEntry
+        and self:GetMythicPlusTimerEntry()
     categories[CATEGORY_MYTHIC_TIMER] = mythicTimerEntry and { mythicTimerEntry } or {}
     if mythicTimerEntry then
-        -- The EnhanceQoL timer already renders the dungeon title, timer,
+        -- The embedded Mythic+ timer already renders the dungeon title, timer,
         -- deaths, objectives, and enemy forces. Do not duplicate Blizzard's
         -- complete Mythic+ scenario block while the replacement is active.
         categories[CATEGORY_SCENARIO] = {}

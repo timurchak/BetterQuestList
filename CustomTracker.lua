@@ -20,6 +20,7 @@ local NEMESIS_SPELL_IDS = {
 local NEMESIS_ACTIVE_CURRENCY_ID = 3103
 local NEMESIS_MAXIMUM_CURRENCY_ID = 3104
 local PROFESSION_CATEGORY = "ProfessionsRecipeTracker"
+local SCENARIO_CATEGORY = "ScenarioObjectiveTracker"
 
 BQL.TRACKER_WIDTH_MIN = TRACKER_WIDTH_MIN
 BQL.TRACKER_WIDTH_MAX = TRACKER_WIDTH_MAX
@@ -35,6 +36,21 @@ local function GetSafeNumber(value, fallback)
         return fallback
     end
     return value
+end
+
+local function IsInstanceFocusCategory(addon, category, focusMode)
+    if category == SCENARIO_CATEGORY then
+        return true
+    end
+    if focusMode == "mythicPlus" and category == addon.MYTHIC_PLUS_TIMER_CATEGORY then
+        return true
+    end
+    for _, damageMeterCategory in ipairs(addon.DAMAGE_METER_CATEGORIES or {}) do
+        if category == damageMeterCategory then
+            return true
+        end
+    end
+    return false
 end
 
 local function ClampPixelValue(value, fallback, minimum, maximum)
@@ -248,8 +264,73 @@ local function SetTrackerGeometry(state)
     addon.db.trackerWidth = width
     addon.db.trackerHeight = height
 
+    local trackerParent = tracker:GetParent()
+    local useStableAnchor = addon.IsStandaloneMythicPlusTimerActive
+        and addon:IsStandaloneMythicPlusTimerActive()
+        and trackerParent ~= UIParent
+
     state.frame:ClearAllPoints()
-    state.frame:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", FRAME_RIGHT_OVERFLOW, 0)
+    if useStableAnchor then
+        local proxy = state.stableTrackerProxy
+        if not proxy then
+            proxy = CreateFrame("Frame", nil, UIParent)
+            state.stableTrackerProxy = proxy
+        end
+        proxy:SetSize(trackerWidth, trackerHeight)
+        proxy:ClearAllPoints()
+
+        local restoredPoint = false
+        for pointIndex = 1, tracker:GetNumPoints() do
+            local point, relativeTo, relativePoint, offsetX, offsetY =
+                tracker:GetPoint(pointIndex)
+            if point
+                and not IsSecret(offsetX)
+                and not IsSecret(offsetY)
+                and type(offsetX) == "number"
+                and type(offsetY) == "number"
+            then
+                if relativeTo == nil or relativeTo == trackerParent then
+                    relativeTo = UIParent
+                end
+                proxy:SetPoint(
+                    point,
+                    relativeTo,
+                    relativePoint or point,
+                    offsetX,
+                    offsetY
+                )
+                restoredPoint = true
+            end
+        end
+        if restoredPoint then
+            state.frame:SetPoint("TOPRIGHT", proxy, "TOPRIGHT", FRAME_RIGHT_OVERFLOW, 0)
+        elseif state.stableTrackerAnchor then
+            state.frame:SetPoint(
+                "TOPRIGHT",
+                UIParent,
+                "BOTTOMLEFT",
+                state.stableTrackerAnchor.x,
+                state.stableTrackerAnchor.y
+            )
+        else
+            state.frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -20, -200)
+        end
+        state.usingStableTrackerAnchor = true
+    else
+        state.frame:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", FRAME_RIGHT_OVERFLOW, 0)
+        state.usingStableTrackerAnchor = false
+
+        local trackerRight = GetSafeNumber(tracker:GetRight(), nil)
+        local trackerTop = GetSafeNumber(tracker:GetTop(), nil)
+        local trackerScale = GetSafeNumber(tracker:GetEffectiveScale(), 1)
+        local uiScale = math.max(GetSafeNumber(UIParent:GetEffectiveScale(), 1), 0.01)
+        if trackerRight and trackerTop then
+            state.stableTrackerAnchor = {
+                x = trackerRight * trackerScale / uiScale + FRAME_RIGHT_OVERFLOW,
+                y = trackerTop * trackerScale / uiScale,
+            }
+        end
+    end
     state.frame:SetSize(width, math.max(height, HEADER_HEIGHT + 40))
 end
 
@@ -993,7 +1074,8 @@ local function CreateRow(state)
         if not duration or not startTime then
             return
         end
-        local remaining = math.max(0, duration - (GetTime() - startTime))
+        local elapsed = math.max(0, GetTime() - startTime)
+        local remaining = math.max(0, duration - elapsed)
         self.bar:SetValue(remaining)
         self.label:SetText(SecondsToClock(remaining))
         local percentageLeft = duration > 0 and (remaining / duration) or 0
@@ -1188,9 +1270,12 @@ local function AddVerticalSpacing(state, spacing)
     end
 end
 
-local function AddCategoryRow(state, category, label)
+local function AddCategoryRow(state, category, label, collapsedOverride)
     local row = AcquireRow(state)
-    local isCollapsed = state.addon:IsCategoryCollapsed(category)
+    local isCollapsed = collapsedOverride
+    if isCollapsed == nil then
+        isCollapsed = state.addon:IsCategoryCollapsed(category)
+    end
     row:EnableMouse(not state.editModeActive)
     row.categoryHeader = category
     ApplySelectedFont(state.addon, row.text, "ObjectiveTrackerHeaderFont")
@@ -1486,8 +1571,10 @@ local function GetTrackedEntryKey(entry)
     if type(entry) ~= "table" or entry.isEnhanceQoLDamageMeter then
         return nil
     end
-    if entry.isEnhanceQoLMythicPlusTimer then
-        return "enhanceqol:mythic-plus-timer"
+    if entry.isMythicPlusTimer
+        or entry.isEnhanceQoLMythicPlusTimer
+    then
+        return "mythic-plus-timer:" .. (entry.mythicPlusTimerProvider or "enhanceQoL")
     end
     if type(entry.questID) == "number" then
         return "quest:" .. entry.questID
@@ -1507,7 +1594,9 @@ end
 
 local function IsExternalFrameEntry(entry)
     return entry
-        and (entry.isEnhanceQoLDamageMeter or entry.isEnhanceQoLMythicPlusTimer)
+        and (entry.isEnhanceQoLDamageMeter
+            or entry.isMythicPlusTimer
+            or entry.isEnhanceQoLMythicPlusTimer)
 end
 
 local function AutoExpandNewTrackedCategories(addon, previousSnapshot, snapshot)
@@ -1663,6 +1752,7 @@ local function AddScenarioCard(state, scenario)
     row.cardFrame:SetPoint("TOP", row, "TOP", 0, 0)
     row.cardFrame:Show()
     row.cardBG:SetPoint("TOPLEFT", row.cardFrame, "TOPLEFT", offsets.normalX, offsets.normalY)
+    row.cardBG:SetVertexColor(1, 1, 1, 1)
     row.cardBG:SetAtlas(normalAtlas, true)
     row.cardBG:Show()
 
@@ -1846,6 +1936,11 @@ local function AddTimerRow(state, quest, duration, startTime)
     row.timer:SetPoint("TOPLEFT", row, "TOPLEFT", OBJECTIVE_TEXT_LEFT, -2)
     row.timer:SetPoint("RIGHT", row, "RIGHT", -12, 0)
     row.timer:SetHeight(18)
+    row.timer.label:ClearAllPoints()
+    row.timer.label:SetPoint("LEFT", 0, 0)
+    row.timer.bar:ClearAllPoints()
+    row.timer.bar:SetPoint("LEFT", row.timer.label, "RIGHT", 6, 0)
+    row.timer.bar:SetPoint("RIGHT", row.timer, "RIGHT", -4, 0)
     row.timer.duration = duration
     row.timer.startTime = startTime
     row.timer.bar:SetMinMaxValues(0, duration)
@@ -1974,9 +2069,10 @@ local function AddEnhanceQoLDamageMeterRow(state, entry)
     return true
 end
 
-local function AddEnhanceQoLMythicPlusTimerRow(state)
+local function AddMythicPlusTimerRow(state, entry)
     local addon = state.addon
-    local frame = addon:GetEnhanceQoLMythicPlusTimerFrame()
+    local provider = entry and entry.mythicPlusTimerProvider or "enhanceQoL"
+    local frame = addon:GetMythicPlusTimerFrame(provider)
     if not frame or not frame:IsShown() then
         return false
     end
@@ -1985,7 +2081,7 @@ local function AddEnhanceQoLMythicPlusTimerRow(state)
     row:EnableMouse(false)
     row.text:Hide()
     row.icon:Hide()
-    frame = addon:AttachEnhanceQoLMythicPlusTimerFrame(row)
+    frame = addon:AttachMythicPlusTimerFrame(row, provider)
     if not frame then
         row:Hide()
         return false
@@ -1993,10 +2089,11 @@ local function AddEnhanceQoLMythicPlusTimerRow(state)
 
     state.enhanceQoLMythicPlusTimerRow = row
     state.enhanceQoLMythicPlusTimerFrame = frame
-    local automaticHeight = addon:MaintainEnhanceQoLMythicPlusTimerFrame() or 80
-    local height = addon:GetEnhanceQoLMythicPlusTimerRowHeight(automaticHeight)
+    state.mythicPlusTimerProvider = provider
+    local automaticHeight = addon:MaintainMythicPlusTimerFrame(provider) or 80
+    local height = addon:GetMythicPlusTimerRowHeight(automaticHeight)
     PlaceRow(state, row, height)
-    addon:MaintainEnhanceQoLMythicPlusTimerFrame()
+    addon:MaintainMythicPlusTimerFrame(provider)
     return true
 end
 
@@ -2152,10 +2249,11 @@ function BQL:CollectCustomDebugInfo()
     if state.snapshot and state.snapshot.categories then
         for _, category in ipairs(self:ReconcileOrder()) do
             local entries = state.snapshot.categories[category]
-            lines[#lines + 1] = ("category %s=%s collapsed=%s"):format(
+            lines[#lines + 1] = ("category %s=%s collapsed=%s headerHidden=%s"):format(
                 category,
                 DebugValue(entries and #entries or 0),
-                DebugValue(self:IsCategoryCollapsed(category))
+                DebugValue(self:IsCategoryCollapsed(category)),
+                DebugValue(self:IsCategoryHeaderHidden(category))
             )
         end
 
@@ -2250,6 +2348,9 @@ function BQL:CollectCustomDebugInfo()
     end
     local mythicTimerIntegration = self.enhanceQoLMythicPlusTimerIntegration
     local mythicTimerRecord = mythicTimerIntegration and mythicTimerIntegration.record
+    local standaloneMythicTimerIntegration = self.standaloneMythicPlusTimerIntegration
+    local standaloneMythicTimerRecord = standaloneMythicTimerIntegration
+        and standaloneMythicTimerIntegration.record
     local enhanceQoL = _G.EnhanceQoL
     local mythicTimer = enhanceQoL
         and enhanceQoL.MythicPlus
@@ -2270,9 +2371,25 @@ function BQL:CollectCustomDebugInfo()
         DebugValue(mythicTimerRecord and mythicTimerRecord.embedded),
         DebugValue(self.db.enhanceQoLMythicPlusTimerHeight)
     )
+    lines[#lines + 1] = ("mythicPlusTimer source=%s selected=%s standaloneActive=%s embedded=%s"):format(
+        DebugValue(self.db.mythicPlusTimerSource),
+        DebugValue(state.mythicPlusTimerProvider),
+        DebugValue(self.IsStandaloneMythicPlusTimerActive
+            and self:IsStandaloneMythicPlusTimerActive()),
+        DebugValue(standaloneMythicTimerRecord
+            and standaloneMythicTimerRecord.embedded)
+    )
+    lines[#lines + 1] = ("instanceFocus mode=%s hideTracker=%s hideOthers=%s collapseOthers=%s"):format(
+        DebugValue(self.GetMythicPlusOrRaidMode
+            and self:GetMythicPlusOrRaidMode()),
+        DebugValue(self.db.mythicPlusRaidHideTracker),
+        DebugValue(self.db.mythicPlusHideOtherCategories),
+        DebugValue(self.db.mythicPlusCollapseOtherCategories)
+    )
     DescribeDebugRegion(lines, "MythicPlusTimerRow", state.enhanceQoLMythicPlusTimerRow)
     DescribeDebugRegion(lines, "MythicPlusTimerFrame",
-        mythicTimerRecord and mythicTimerRecord.frame
+        standaloneMythicTimerRecord and standaloneMythicTimerRecord.frame
+            or mythicTimerRecord and mythicTimerRecord.frame
             or state.enhanceQoLMythicPlusTimerFrame)
     local mythicTimerVisualBounds
     if mythicTimerRecord
@@ -2419,8 +2536,8 @@ function BQL:RenderCustomTracker()
     if self.ParkEnhanceQoLDamageMeterFrames then
         self:ParkEnhanceQoLDamageMeterFrames()
     end
-    if self.ParkEnhanceQoLMythicPlusTimerFrame then
-        self:ParkEnhanceQoLMythicPlusTimerFrame()
+    if self.ParkMythicPlusTimerFrames then
+        self:ParkMythicPlusTimerFrames()
     end
 
     local previousScroll = state.scrollFrame:GetVerticalScroll()
@@ -2437,31 +2554,53 @@ function BQL:RenderCustomTracker()
     state.enhanceQoLDamageMeterFrames = {}
     state.enhanceQoLMythicPlusTimerRow = nil
     state.enhanceQoLMythicPlusTimerFrame = nil
+    state.mythicPlusTimerProvider = nil
     if state.objectiveWidgetContainer then
         state.objectiveWidgetContainer:SetAlpha(0)
     end
     local visibleQuestCount = 0
     local hasVisibleCategory = false
+    local focusMode = self.GetMythicPlusOrRaidMode
+        and self:GetMythicPlusOrRaidMode()
+    local hideEntireTracker = focusMode and self.db.mythicPlusRaidHideTracker
+    local hideOtherCategories = focusMode
+        and self.db.mythicPlusHideOtherCategories
+    local collapseOtherCategories = focusMode
+        and self.db.mythicPlusCollapseOtherCategories
+    state.frame:SetAlpha(hideEntireTracker and 0 or 1)
+    state.header:SetShown(not hideEntireTracker)
 
-    if not self.db.collapsed then
+    if not hideEntireTracker and not self.db.collapsed then
         for _, category in ipairs(self:ReconcileOrder()) do
             local quests = state.snapshot.categories[category] or {}
-            if #quests > 0 then
+            local focusCategory = IsInstanceFocusCategory(self, category, focusMode)
+            local categoryHidden = hideOtherCategories and not focusCategory
+            if #quests > 0 and not categoryHidden then
                 if hasVisibleCategory then
                     AddVerticalSpacing(state, self.db.categorySpacing)
                 end
 
                 local firstQuest = quests[1]
                 if firstQuest then
+                    local headerHidden = self:IsCategoryHeaderHidden(category)
                     local categoryLabel
                     if self:GetCustomModuleLabel(category) ~= "" then
                         categoryLabel = self:GetModuleLabel(category)
                     elseif firstQuest.isScenario or firstQuest.isObjectiveWidget then
                         categoryLabel = firstQuest.title
                     end
-                    AddCategoryRow(state, category, categoryLabel)
+                    local categoryCollapsed
+                    if headerHidden or (focusMode and focusCategory) then
+                        categoryCollapsed = false
+                    else
+                        categoryCollapsed = self:IsCategoryCollapsed(category)
+                            or collapseOtherCategories
+                    end
+                    if not headerHidden then
+                        AddCategoryRow(state, category, categoryLabel, categoryCollapsed)
+                    end
                     hasVisibleCategory = true
-                    if self:IsCategoryCollapsed(category) then
+                    if categoryCollapsed then
                         for _, quest in ipairs(quests) do
                             if not IsExternalFrameEntry(quest) then
                                 visibleQuestCount = visibleQuestCount + 1
@@ -2478,8 +2617,10 @@ function BQL:RenderCustomTracker()
                                 AddObjectiveWidgetRow(state)
                             elseif quest.isEnhanceQoLDamageMeter then
                                 AddEnhanceQoLDamageMeterRow(state, quest)
-                            elseif quest.isEnhanceQoLMythicPlusTimer then
-                                AddEnhanceQoLMythicPlusTimerRow(state)
+                            elseif quest.isMythicPlusTimer
+                                or quest.isEnhanceQoLMythicPlusTimer
+                            then
+                                AddMythicPlusTimerRow(state, quest)
                             else
                                 AddQuestTitleRow(state, quest)
                             end
@@ -2503,7 +2644,12 @@ function BQL:RenderCustomTracker()
                                         )
                                     end
                                 end
-                                AddTimerRow(state, quest, quest.timerDuration, quest.timerStartTime)
+                                AddTimerRow(
+                                    state,
+                                    quest,
+                                    quest.timerDuration,
+                                    quest.timerStartTime
+                                )
                                 visibleQuestCount = visibleQuestCount + 1
                             end
                         end
@@ -2532,7 +2678,7 @@ function BQL:RenderCustomTracker()
 
     state.countText:SetText(visibleQuestCount > 0 and tostring(visibleQuestCount) or "")
     state.collapseButton:SetText(self.db.collapsed and "+" or "-")
-    state.scrollFrame:SetShown(not self.db.collapsed)
+    state.scrollFrame:SetShown(not hideEntireTracker and not self.db.collapsed)
     UpdateScroll(state, previousScroll)
 end
 
@@ -2742,6 +2888,12 @@ function BQL:InitializeCustomTracker()
         if state.stockHideElapsed >= 0.1 then
             state.stockHideElapsed = 0
             HideBlizzardTracker(state)
+            local timerOwnsTrackerParent = self.IsStandaloneMythicPlusTimerActive
+                and self:IsStandaloneMythicPlusTimerActive()
+                and state.blizzardTracker:GetParent() ~= UIParent
+            if timerOwnsTrackerParent or state.usingStableTrackerAnchor then
+                SetTrackerGeometry(state)
+            end
             if state.editModeActive and self.SuppressBlizzardTrackerEditModeSelection then
                 self:SuppressBlizzardTrackerEditModeSelection()
             end

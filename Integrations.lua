@@ -480,6 +480,8 @@ function BQL:MaintainEnhanceQoLMythicPlusTimerFrame()
 
     local timer = record.timer
     local visual = GetMythicPlusTimerVisual(timer, frame)
+    local customOffsetX = tonumber(self.db.mythicPlusTimerOffsetX) or 0
+    local customOffsetY = tonumber(self.db.mythicPlusTimerOffsetY) or 0
     frame:SetParent(row)
     frame:SetFrameStrata(self.customState.frame:GetFrameStrata())
     frame:SetFrameLevel(row:GetFrameLevel() + 10)
@@ -517,11 +519,23 @@ function BQL:MaintainEnhanceQoLMythicPlusTimerFrame()
     local visualLeft = GetSafeRegionNumber(visual, "GetLeft")
     local visualRight = GetSafeRegionNumber(visual, "GetRight")
     local visualTop = GetSafeRegionNumber(visual, "GetTop")
+    local alignedToVisual = false
     if rowLeft and rowRight and rowTop and visualLeft and visualRight and visualTop then
         local offsetX = ((rowLeft + rowRight) - (visualLeft + visualRight)) / 2
         local offsetY = rowTop - visualTop
         frame:ClearAllPoints()
-        frame:SetPoint("TOP", row, "TOP", offsetX, offsetY)
+        frame:SetPoint(
+            "TOP",
+            row,
+            "TOP",
+            offsetX + customOffsetX,
+            offsetY + customOffsetY
+        )
+        alignedToVisual = true
+    end
+    if not alignedToVisual and (customOffsetX ~= 0 or customOffsetY ~= 0) then
+        frame:ClearAllPoints()
+        frame:SetPoint("TOP", row, "TOP", customOffsetX, customOffsetY)
     end
 
     local visualHeight = GetSafeRegionNumber(visual, "GetHeight") or 0
@@ -537,6 +551,7 @@ function BQL:MaintainEnhanceQoLMythicPlusTimerFrame()
         * frameEffectiveScale
         / math.max(rowScale, 0.01)
     return math.max(visualHeightInRow, frameHeightInRow, 40)
+        + math.max(0, -customOffsetY)
 end
 
 function BQL:AttachEnhanceQoLMythicPlusTimerFrame(row)
@@ -686,4 +701,514 @@ function BQL:InitializeEnhanceQoLMythicPlusTimerIntegration()
     integration.events = events
 
     InstallHooks()
+end
+
+local function GetStandaloneMythicPlusTimerFrame()
+    return _G.MythicPlusTimer
+end
+
+local function GetStandaloneMythicPlusTimerScale(frame)
+    local config = _G.MythicPlusTimerDB and _G.MythicPlusTimerDB.config
+    local scale = config and config.scale
+    if IsSecret(scale) or type(scale) ~= "number" or scale <= 0 then
+        return frame and GetSafeRegionNumber(frame, "GetScale") or 1
+    end
+    return scale
+end
+
+local function IsRegionShown(region)
+    if not region or type(region.IsShown) ~= "function" then
+        return true
+    end
+    local ok, shown = pcall(region.IsShown, region)
+    return ok and not IsSecret(shown) and shown == true
+end
+
+local function AddRegionScreenBounds(region, bounds)
+    if not IsRegionShown(region) then
+        return
+    end
+
+    local left = GetSafeRegionNumber(region, "GetLeft")
+    local right = GetSafeRegionNumber(region, "GetRight")
+    local top = GetSafeRegionNumber(region, "GetTop")
+    local bottom = GetSafeRegionNumber(region, "GetBottom")
+    local scale = GetSafeRegionNumber(region, "GetEffectiveScale") or 1
+    if not left or not right or not top or not bottom or right < left or top < bottom then
+        return
+    end
+
+    left = left * scale
+    right = right * scale
+    top = top * scale
+    bottom = bottom * scale
+    bounds.left = bounds.left and math.min(bounds.left, left) or left
+    bounds.right = bounds.right and math.max(bounds.right, right) or right
+    bounds.top = bounds.top and math.max(bounds.top, top) or top
+    bounds.bottom = bounds.bottom and math.min(bounds.bottom, bottom) or bottom
+end
+
+local function CollectFrameScreenBounds(frame, bounds, depth)
+    if not frame or depth > 12 or not IsRegionShown(frame) then
+        return
+    end
+
+    AddRegionScreenBounds(frame, bounds)
+    if type(frame.GetRegions) == "function" then
+        local ok, regions = pcall(function()
+            return { frame:GetRegions() }
+        end)
+        if ok then
+            for _, region in ipairs(regions) do
+                AddRegionScreenBounds(region, bounds)
+            end
+        end
+    end
+    if type(frame.GetChildren) == "function" then
+        local ok, children = pcall(function()
+            return { frame:GetChildren() }
+        end)
+        if ok then
+            for _, child in ipairs(children) do
+                CollectFrameScreenBounds(child, bounds, depth + 1)
+            end
+        end
+    end
+end
+
+local function GetStandaloneMythicPlusTimerBounds(frame)
+    local bounds = {}
+    CollectFrameScreenBounds(frame, bounds, 0)
+    if not bounds.left or not bounds.right or not bounds.top or not bounds.bottom then
+        return nil
+    end
+    return bounds
+end
+
+function BQL:IsStandaloneMythicPlusTimerActive()
+    local frame = GetStandaloneMythicPlusTimerFrame()
+    if not frame or not frame:IsShown() then
+        return false
+    end
+    local frameToggle = frame.frame_toggle
+    if IsSecret(frameToggle) or frameToggle == true then
+        return false
+    end
+    return true
+end
+
+function BQL:IsMythicPlusActive()
+    if not C_ChallengeMode
+        or type(C_ChallengeMode.IsChallengeModeActive) ~= "function"
+    then
+        return false
+    end
+
+    local ok, active = pcall(C_ChallengeMode.IsChallengeModeActive)
+    return ok and not IsSecret(active) and active == true
+end
+
+function BQL:IsRaidInstanceActive()
+    if type(IsInInstance) ~= "function" then
+        return false
+    end
+
+    local ok, inInstance, instanceType = pcall(IsInInstance)
+    return ok
+        and not IsSecret(inInstance)
+        and not IsSecret(instanceType)
+        and inInstance == true
+        and instanceType == "raid"
+end
+
+function BQL:GetMythicPlusOrRaidMode()
+    if self:IsMythicPlusActive() then
+        return "mythicPlus"
+    end
+    if self:IsRaidInstanceActive() then
+        return "raid"
+    end
+    return nil
+end
+
+local function IsAddOnInstalled(addonName)
+    if C_AddOns and type(C_AddOns.DoesAddOnExist) == "function" then
+        local ok, exists = pcall(C_AddOns.DoesAddOnExist, addonName)
+        if ok and not IsSecret(exists) then
+            return exists and true or false
+        end
+    end
+    if C_AddOns and type(C_AddOns.GetAddOnMetadata) == "function" then
+        local ok, title = pcall(C_AddOns.GetAddOnMetadata, addonName, "Title")
+        return ok and not IsSecret(title) and type(title) == "string" and title ~= ""
+    end
+    return false
+end
+
+function BQL:IsMythicPlusTimerProviderInstalled(provider)
+    if provider == "mythicPlusTimer" then
+        return IsAddOnInstalled("MythicPlusTimer")
+    elseif provider == "enhanceQoL" then
+        return IsAddOnInstalled("EnhanceQoLDungeonRaid")
+            or GetMythicPlusTimer() ~= nil
+    end
+    return provider == "auto" or provider == "disabled"
+end
+
+function BQL:GetMythicPlusTimerSource()
+    local source = self.db and self.db.mythicPlusTimerSource or "auto"
+    if self:IsMythicPlusTimerProviderInstalled(source) then
+        return source
+    end
+    return "auto"
+end
+
+function BQL:GetMythicPlusTimerSourceChoices()
+    local choices = {
+        { value = "auto", label = self.text.mythicPlusTimerSourceAuto },
+    }
+    if self:IsMythicPlusTimerProviderInstalled("mythicPlusTimer") then
+        choices[#choices + 1] = {
+            value = "mythicPlusTimer",
+            label = self.text.mythicPlusTimerSourceMythicPlusTimer,
+        }
+    end
+    if self:IsMythicPlusTimerProviderInstalled("enhanceQoL") then
+        choices[#choices + 1] = {
+            value = "enhanceQoL",
+            label = self.text.mythicPlusTimerSourceEnhanceQoL,
+        }
+    end
+    choices[#choices + 1] = {
+        value = "disabled",
+        label = self.text.integrationDisabled,
+    }
+    return choices
+end
+
+function BQL:SetMythicPlusTimerSource(source)
+    if not self.db or self.db.mythicPlusTimerSource == source then
+        return
+    end
+    local valid = false
+    for _, choice in ipairs(self.MYTHIC_PLUS_TIMER_SOURCE_CHOICES or {}) do
+        if source == choice then
+            valid = true
+            break
+        end
+    end
+    if not valid or not self:IsMythicPlusTimerProviderInstalled(source) then
+        return
+    end
+
+    self.db.mythicPlusTimerSource = source
+    self:DetachEnhanceQoLMythicPlusTimerFrame()
+    self:DetachStandaloneMythicPlusTimerFrame()
+    self:RequestCustomRefresh(true)
+end
+
+function BQL:GetSelectedMythicPlusTimerProvider()
+    local source = self:GetMythicPlusTimerSource()
+    if source == "disabled" then
+        return nil
+    end
+    if (source == "auto" or source == "mythicPlusTimer")
+        and self:IsStandaloneMythicPlusTimerActive()
+    then
+        return "mythicPlusTimer"
+    end
+    if (source == "auto" or source == "enhanceQoL")
+        and self:IsEnhanceQoLMythicPlusTimerActive()
+    then
+        return "enhanceQoL"
+    end
+    return nil
+end
+
+function BQL:GetMythicPlusTimerEntry()
+    local provider = self:GetSelectedMythicPlusTimerProvider()
+    if provider ~= "enhanceQoL" then
+        self:DetachEnhanceQoLMythicPlusTimerFrame()
+    end
+    if provider ~= "mythicPlusTimer" then
+        self:DetachStandaloneMythicPlusTimerFrame()
+    end
+    if not provider then
+        return nil
+    end
+    return {
+        kind = "mythicPlusTimer",
+        category = self.MYTHIC_PLUS_TIMER_CATEGORY,
+        title = self:GetModuleLabel(self.MYTHIC_PLUS_TIMER_CATEGORY),
+        isMythicPlusTimer = true,
+        mythicPlusTimerProvider = provider,
+        objectives = {},
+    }
+end
+
+function BQL:GetMythicPlusTimerFrame(provider)
+    if provider == "mythicPlusTimer" then
+        return GetStandaloneMythicPlusTimerFrame()
+    elseif provider == "enhanceQoL" then
+        return self:GetEnhanceQoLMythicPlusTimerFrame()
+    end
+end
+
+function BQL:GetMythicPlusTimerRowHeight(automaticHeight)
+    return self:GetEnhanceQoLMythicPlusTimerRowHeight(automaticHeight)
+end
+
+function BQL:MaintainStandaloneMythicPlusTimerFrame()
+    local integration = self.standaloneMythicPlusTimerIntegration
+    local record = integration and integration.record
+    local row = record and record.row
+    local frame = record and record.frame
+    if not row or not frame or not record.embedded then
+        return nil
+    end
+
+    local customOffsetX = tonumber(self.db.mythicPlusTimerOffsetX) or 0
+    local customOffsetY = tonumber(self.db.mythicPlusTimerOffsetY) or 0
+
+    local configuredScale = GetStandaloneMythicPlusTimerScale(frame)
+    if configuredScale then
+        record.original.scale = configuredScale
+    end
+    if frame:GetParent() ~= row then
+        integration.suppressVisibilityHook = true
+        frame:SetParent(row)
+        integration.suppressVisibilityHook = false
+    end
+    frame:SetFrameStrata(self.customState.frame:GetFrameStrata())
+    frame:SetFrameLevel(row:GetFrameLevel() + 10)
+    frame:SetClampedToScreen(false)
+    frame:SetMovable(false)
+    frame:SetResizable(false)
+    frame:SetScale(record.original.scale or 1)
+    frame:ClearAllPoints()
+    frame:SetPoint("TOP", row, "TOP", 0, 0)
+
+    local bounds = GetStandaloneMythicPlusTimerBounds(frame)
+    local rowLeft = GetSafeRegionNumber(row, "GetLeft")
+    local rowRight = GetSafeRegionNumber(row, "GetRight")
+    local rowScale = GetSafeRegionNumber(row, "GetEffectiveScale") or 1
+    local availableWidth = rowLeft and rowRight and (rowRight - rowLeft) * rowScale
+    local visualWidth = bounds and bounds.right - bounds.left
+    if availableWidth and availableWidth > 0 and visualWidth and visualWidth > availableWidth then
+        frame:SetScale((record.original.scale or 1) * availableWidth / visualWidth)
+        frame:ClearAllPoints()
+        frame:SetPoint("TOP", row, "TOP", 0, 0)
+        bounds = GetStandaloneMythicPlusTimerBounds(frame)
+    end
+
+    local rowTop = GetSafeRegionNumber(row, "GetTop")
+    if bounds and rowLeft and rowRight and rowTop then
+        local rowCenter = ((rowLeft + rowRight) / 2) * rowScale
+        local rowTopScreen = rowTop * rowScale
+        local visualCenter = (bounds.left + bounds.right) / 2
+        local offsetX = (rowCenter - visualCenter) / math.max(rowScale, 0.01)
+        local offsetY = (rowTopScreen - bounds.top) / math.max(rowScale, 0.01)
+        frame:ClearAllPoints()
+        frame:SetPoint(
+            "TOP",
+            row,
+            "TOP",
+            offsetX + customOffsetX,
+            offsetY + customOffsetY
+        )
+        bounds = GetStandaloneMythicPlusTimerBounds(frame)
+    elseif customOffsetX ~= 0 or customOffsetY ~= 0 then
+        frame:ClearAllPoints()
+        frame:SetPoint("TOP", row, "TOP", customOffsetX, customOffsetY)
+        bounds = GetStandaloneMythicPlusTimerBounds(frame)
+    end
+
+    if bounds then
+        return math.max((bounds.top - bounds.bottom) / math.max(rowScale, 0.01), 40)
+            + math.max(0, -customOffsetY)
+    end
+    local frameHeight = GetSafeRegionNumber(frame, "GetHeight") or 40
+    local frameScale = GetSafeRegionNumber(frame, "GetEffectiveScale") or rowScale
+    return math.max(frameHeight * frameScale / math.max(rowScale, 0.01), 40)
+        + math.max(0, -customOffsetY)
+end
+
+function BQL:AttachStandaloneMythicPlusTimerFrame(row)
+    local integration = self.standaloneMythicPlusTimerIntegration
+    local frame = GetStandaloneMythicPlusTimerFrame()
+    if not integration or not self:IsStandaloneMythicPlusTimerActive() or not frame then
+        return nil
+    end
+
+    local record = integration.record
+    if record and record.frame ~= frame then
+        self:DetachStandaloneMythicPlusTimerFrame()
+        record = nil
+    end
+    if not record then
+        record = {
+            frame = frame,
+            original = CaptureOriginalState(frame),
+        }
+        integration.record = record
+    end
+    record.row = row
+    record.embedded = true
+    self:MaintainStandaloneMythicPlusTimerFrame()
+    return frame
+end
+
+function BQL:ParkStandaloneMythicPlusTimerFrame()
+    local integration = self.standaloneMythicPlusTimerIntegration
+    local record = integration and integration.record
+    if not record or not record.embedded then
+        return
+    end
+    record.embedded = false
+    record.row = nil
+    integration.suppressVisibilityHook = true
+    record.frame:SetParent(integration.parkingFrame)
+    integration.suppressVisibilityHook = false
+    record.frame:ClearAllPoints()
+    record.frame:SetPoint("CENTER", integration.parkingFrame, "CENTER", 0, 0)
+    record.frame:SetClampedToScreen(false)
+    record.frame:SetMovable(false)
+end
+
+function BQL:DetachStandaloneMythicPlusTimerFrame()
+    local integration = self.standaloneMythicPlusTimerIntegration
+    local record = integration and integration.record
+    if not record then
+        return
+    end
+    integration.record = nil
+    local frame = record.frame
+    local original = record.original
+    integration.suppressVisibilityHook = true
+    frame:SetParent(original.parent or UIParent)
+    integration.suppressVisibilityHook = false
+    RestorePoints(frame, original.points)
+    frame:SetFrameStrata(original.frameStrata)
+    frame:SetFrameLevel(original.frameLevel)
+    frame:SetScale(original.scale)
+    frame:SetClampedToScreen(original.clampedToScreen)
+    frame:SetMovable(original.movable)
+    frame:SetResizable(original.resizable)
+end
+
+function BQL:AttachMythicPlusTimerFrame(row, provider)
+    if provider == "mythicPlusTimer" then
+        return self:AttachStandaloneMythicPlusTimerFrame(row)
+    elseif provider == "enhanceQoL" then
+        return self:AttachEnhanceQoLMythicPlusTimerFrame(row)
+    end
+end
+
+function BQL:MaintainMythicPlusTimerFrame(provider)
+    if provider == "mythicPlusTimer" then
+        return self:MaintainStandaloneMythicPlusTimerFrame()
+    elseif provider == "enhanceQoL" then
+        return self:MaintainEnhanceQoLMythicPlusTimerFrame()
+    end
+end
+
+function BQL:ParkMythicPlusTimerFrames()
+    self:ParkEnhanceQoLMythicPlusTimerFrame()
+    self:ParkStandaloneMythicPlusTimerFrame()
+end
+
+function BQL:InitializeStandaloneMythicPlusTimerIntegration()
+    if self.standaloneMythicPlusTimerIntegration then
+        return
+    end
+    local integration = {
+        lastActive = false,
+        elapsed = 0,
+    }
+    integration.parkingFrame = CreateFrame("Frame", nil, UIParent)
+    integration.parkingFrame:SetSize(1, 1)
+    integration.parkingFrame:SetPoint("TOP", UIParent, "TOP", 0, 0)
+    integration.parkingFrame:Hide()
+    self.standaloneMythicPlusTimerIntegration = integration
+
+    local function RefreshIntegration(force)
+        C_Timer.After(0, function()
+            local active = self:IsStandaloneMythicPlusTimerActive()
+            if force or active ~= integration.lastActive then
+                integration.lastActive = active
+                self:RequestCustomRefresh(true)
+            end
+        end)
+    end
+
+    local function InstallFrameHooks()
+        local frame = GetStandaloneMythicPlusTimerFrame()
+        if not frame or integration.hookedFrame == frame then
+            return
+        end
+        integration.hookedFrame = frame
+        frame:HookScript("OnShow", function()
+            if not integration.suppressVisibilityHook then
+                RefreshIntegration(true)
+            end
+        end)
+        frame:HookScript("OnHide", function()
+            if not integration.suppressVisibilityHook then
+                RefreshIntegration(true)
+            end
+        end)
+        frame:HookScript("OnSizeChanged", function()
+            if integration.record and integration.record.embedded then
+                self:RequestCustomRefresh(false)
+            end
+        end)
+        integration.lastActive = self:IsStandaloneMythicPlusTimerActive()
+        self:RequestCustomRefresh(true)
+    end
+
+    local events = CreateFrame("Frame")
+    events:RegisterEvent("ADDON_LOADED")
+    events:RegisterEvent("PLAYER_LOGIN")
+    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    events:RegisterEvent("CHALLENGE_MODE_START")
+    events:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    events:RegisterEvent("CHALLENGE_MODE_RESET")
+    events:SetScript("OnEvent", function(_, event, loadedAddon)
+        if event ~= "ADDON_LOADED" or loadedAddon == "MythicPlusTimer" then
+            C_Timer.After(0, InstallFrameHooks)
+            RefreshIntegration(true)
+            C_Timer.After(0.5, function()
+                RefreshIntegration(false)
+            end)
+        end
+    end)
+    events:SetScript("OnUpdate", function(_, elapsed)
+        integration.elapsed = integration.elapsed + elapsed
+        if integration.elapsed < 0.25 then
+            return
+        end
+        integration.elapsed = 0
+        InstallFrameHooks()
+        local active = self:IsStandaloneMythicPlusTimerActive()
+        if active ~= integration.lastActive then
+            integration.lastActive = active
+            self:RequestCustomRefresh(true)
+        elseif active and integration.record and integration.record.embedded then
+            local automaticHeight = self:MaintainStandaloneMythicPlusTimerFrame()
+            local desiredHeight = self:GetMythicPlusTimerRowHeight(automaticHeight)
+            local currentHeight = GetSafeRegionNumber(integration.record.row, "GetHeight")
+            if desiredHeight and currentHeight
+                and math.abs(desiredHeight - currentHeight) > 0.5
+            then
+                self:RequestCustomRefresh(false)
+            end
+        end
+    end)
+    integration.events = events
+    InstallFrameHooks()
+end
+
+function BQL:InitializeMythicPlusTimerIntegration()
+    self:InitializeEnhanceQoLMythicPlusTimerIntegration()
+    self:InitializeStandaloneMythicPlusTimerIntegration()
 end

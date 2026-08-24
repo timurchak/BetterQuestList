@@ -826,6 +826,19 @@ function BQL:InitializeEditModeIntegration()
     }
 
     local integrationRows = {
+        CreateDropdownRow(
+            optionsContent,
+            self.text.mythicPlusTimerSource,
+            function()
+                return self:GetMythicPlusTimerSourceChoices()
+            end,
+            function()
+                return self:GetMythicPlusTimerSource()
+            end,
+            function(value)
+                self:SetMythicPlusTimerSource(value)
+            end
+        ),
         CreateSlider(
             optionsContent,
             self.text.mythicPlusTimerHeight,
@@ -843,6 +856,32 @@ function BQL:InitializeEditModeIntegration()
             end,
             function(value)
                 return value == 0 and self.text.automatic or ("%d px"):format(value)
+            end
+        ),
+        CreateSlider(
+            optionsContent,
+            self.text.mythicPlusTimerOffsetX,
+            -100,
+            100,
+            function()
+                return self.db.mythicPlusTimerOffsetX
+            end,
+            function(value)
+                self.db.mythicPlusTimerOffsetX = value
+                self:RequestCustomRefresh(false)
+            end
+        ),
+        CreateSlider(
+            optionsContent,
+            self.text.mythicPlusTimerOffsetY,
+            -100,
+            100,
+            function()
+                return self.db.mythicPlusTimerOffsetY
+            end,
+            function(value)
+                self.db.mythicPlusTimerOffsetY = value
+                self:RequestCustomRefresh(false)
             end
         ),
         CreateDropdownRow(

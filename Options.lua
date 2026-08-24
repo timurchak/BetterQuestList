@@ -43,7 +43,7 @@ function BQL:CreateCategoryNamesOptions(parentCategory)
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, math.max(720, 130 + MAX_ROWS * 38))
+    controls:SetSize(620, math.max(760, 150 + MAX_ROWS * 58))
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -66,7 +66,7 @@ function BQL:CreateCategoryNamesOptions(parentCategory)
     self.categoryNameRows = {}
     for index = 1, MAX_ROWS do
         local row = CreateFrame("Frame", nil, controls)
-        row:SetHeight(34)
+        row:SetHeight(54)
         row:SetPoint("LEFT", controls, "LEFT", 16, 0)
         row:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
         if index == 1 then
@@ -76,15 +76,38 @@ function BQL:CreateCategoryNamesOptions(parentCategory)
         end
 
         local defaultLabel = CreateLabel(row, "GameFontHighlight", "")
-        defaultLabel:SetPoint("LEFT", 0, 0)
+        defaultLabel:SetPoint("TOPLEFT", 0, -3)
         defaultLabel:SetWidth(260)
 
         local editBox = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-        editBox:SetPoint("LEFT", defaultLabel, "RIGHT", 10, 0)
-        editBox:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        editBox:SetPoint("TOPLEFT", defaultLabel, "TOPRIGHT", 10, 3)
+        editBox:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, 3)
         editBox:SetHeight(26)
         editBox:SetAutoFocus(false)
         editBox:SetMaxLetters(80)
+
+        local hideHeaderCheck = CreateFrame(
+            "CheckButton",
+            nil,
+            row,
+            "UICheckButtonTemplate"
+        )
+        hideHeaderCheck:SetPoint("TOPLEFT", row, "TOPLEFT", -4, -26)
+        hideHeaderCheck:SetScript("OnClick", function(button)
+            if row.category then
+                self:SetCategoryHeaderHidden(
+                    row.category,
+                    button:GetChecked() and true or false
+                )
+            end
+        end)
+
+        local hideHeaderLabel = CreateLabel(
+            row,
+            "GameFontNormalSmall",
+            self.text.hideCategoryHeader
+        )
+        hideHeaderLabel:SetPoint("LEFT", hideHeaderCheck, "RIGHT", 0, 0)
 
         local function SaveName()
             if row.category then
@@ -103,6 +126,7 @@ function BQL:CreateCategoryNamesOptions(parentCategory)
 
         row.defaultLabel = defaultLabel
         row.editBox = editBox
+        row.hideHeaderCheck = hideHeaderCheck
         self.categoryNameRows[index] = row
     end
 
@@ -144,6 +168,7 @@ function BQL:RefreshCategoryNames()
             if not row.editBox:HasFocus() then
                 row.editBox:SetText(self:GetCustomModuleLabel(category))
             end
+            row.hideHeaderCheck:SetChecked(self:IsCategoryHeaderHidden(category))
             row:Show()
         else
             row:Hide()
@@ -162,7 +187,7 @@ function BQL:CreateOptions()
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 4)
 
     local controls = CreateFrame("Frame", nil, scrollFrame)
-    controls:SetSize(620, math.max(760, 430 + MAX_ROWS * (ROW_HEIGHT + 1)))
+    controls:SetSize(620, math.max(940, 610 + MAX_ROWS * (ROW_HEIGHT + 1)))
     scrollFrame:SetScrollChild(controls)
     panel:HookScript("OnSizeChanged", function(_, width)
         if type(width) == "number" then
@@ -297,6 +322,135 @@ function BQL:CreateOptions()
     activeQuestItemDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
     activeQuestItemDescription:SetWordWrap(true)
 
+    local mythicPlusHideCheck = CreateFrame(
+        "CheckButton",
+        nil,
+        controls,
+        "UICheckButtonTemplate"
+    )
+    mythicPlusHideCheck:SetPoint(
+        "TOPLEFT",
+        activeQuestItemDescription,
+        "BOTTOMLEFT",
+        -30,
+        -14
+    )
+    mythicPlusHideCheck:SetScript("OnClick", function(button)
+        self.db.mythicPlusHideOtherCategories = button:GetChecked() and true or false
+        self:RequestCustomRefresh(false)
+    end)
+    self.mythicPlusHideCheck = mythicPlusHideCheck
+
+    local mythicPlusHideLabel = CreateLabel(
+        controls,
+        "GameFontNormal",
+        self.text.mythicPlusHideOtherCategories
+    )
+    mythicPlusHideLabel:SetPoint("LEFT", mythicPlusHideCheck, "RIGHT", 2, 0)
+
+    local mythicPlusHideDescription = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.mythicPlusHideOtherCategoriesDescription
+    )
+    mythicPlusHideDescription:SetPoint(
+        "TOPLEFT",
+        mythicPlusHideCheck,
+        "BOTTOMLEFT",
+        30,
+        -2
+    )
+    mythicPlusHideDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    mythicPlusHideDescription:SetWordWrap(true)
+
+    local mythicPlusCollapseCheck = CreateFrame(
+        "CheckButton",
+        nil,
+        controls,
+        "UICheckButtonTemplate"
+    )
+    mythicPlusCollapseCheck:SetPoint(
+        "TOPLEFT",
+        mythicPlusHideDescription,
+        "BOTTOMLEFT",
+        -30,
+        -14
+    )
+    mythicPlusCollapseCheck:SetScript("OnClick", function(button)
+        self.db.mythicPlusCollapseOtherCategories = button:GetChecked() and true or false
+        self:RequestCustomRefresh(false)
+    end)
+    self.mythicPlusCollapseCheck = mythicPlusCollapseCheck
+
+    local mythicPlusCollapseLabel = CreateLabel(
+        controls,
+        "GameFontNormal",
+        self.text.mythicPlusCollapseOtherCategories
+    )
+    mythicPlusCollapseLabel:SetPoint("LEFT", mythicPlusCollapseCheck, "RIGHT", 2, 0)
+
+    local mythicPlusCollapseDescription = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.mythicPlusCollapseOtherCategoriesDescription
+    )
+    mythicPlusCollapseDescription:SetPoint(
+        "TOPLEFT",
+        mythicPlusCollapseCheck,
+        "BOTTOMLEFT",
+        30,
+        -2
+    )
+    mythicPlusCollapseDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    mythicPlusCollapseDescription:SetWordWrap(true)
+
+    local mythicPlusRaidHideTrackerCheck = CreateFrame(
+        "CheckButton",
+        nil,
+        controls,
+        "UICheckButtonTemplate"
+    )
+    mythicPlusRaidHideTrackerCheck:SetPoint(
+        "TOPLEFT",
+        mythicPlusCollapseDescription,
+        "BOTTOMLEFT",
+        -30,
+        -14
+    )
+    mythicPlusRaidHideTrackerCheck:SetScript("OnClick", function(button)
+        self.db.mythicPlusRaidHideTracker = button:GetChecked() and true or false
+        self:RequestCustomRefresh(false)
+    end)
+    self.mythicPlusRaidHideTrackerCheck = mythicPlusRaidHideTrackerCheck
+
+    local mythicPlusRaidHideTrackerLabel = CreateLabel(
+        controls,
+        "GameFontNormal",
+        self.text.mythicPlusRaidHideTracker
+    )
+    mythicPlusRaidHideTrackerLabel:SetPoint(
+        "LEFT",
+        mythicPlusRaidHideTrackerCheck,
+        "RIGHT",
+        2,
+        0
+    )
+
+    local mythicPlusRaidHideTrackerDescription = CreateLabel(
+        controls,
+        "GameFontHighlightSmall",
+        self.text.mythicPlusRaidHideTrackerDescription
+    )
+    mythicPlusRaidHideTrackerDescription:SetPoint(
+        "TOPLEFT",
+        mythicPlusRaidHideTrackerCheck,
+        "BOTTOMLEFT",
+        30,
+        -2
+    )
+    mythicPlusRaidHideTrackerDescription:SetPoint("RIGHT", controls, "RIGHT", -24, 0)
+    mythicPlusRaidHideTrackerDescription:SetWordWrap(true)
+
     local mythicPlusTimerHeightLabel = CreateLabel(
         controls,
         "GameFontHighlight",
@@ -304,7 +458,7 @@ function BQL:CreateOptions()
     )
     mythicPlusTimerHeightLabel:SetPoint(
         "TOPLEFT",
-        activeQuestItemDescription,
+        mythicPlusRaidHideTrackerDescription,
         "BOTTOMLEFT",
         30,
         -18
@@ -407,6 +561,12 @@ function BQL:RefreshOptions()
     self.autoTrackCheck:SetEnabled(C_CVar and type(C_CVar.SetCVar) == "function")
     self.activeQuestItemCheck:SetChecked(self.db.activeQuestItemEnabled)
     self.activeQuestItemCheck:SetEnabled(self.activeQuestItem ~= nil)
+    self.mythicPlusHideCheck:SetChecked(self.db.mythicPlusHideOtherCategories)
+    self.mythicPlusHideCheck:SetEnabled(true)
+    self.mythicPlusCollapseCheck:SetChecked(self.db.mythicPlusCollapseOtherCategories)
+    self.mythicPlusCollapseCheck:SetEnabled(true)
+    self.mythicPlusRaidHideTrackerCheck:SetChecked(self.db.mythicPlusRaidHideTracker)
+    self.mythicPlusRaidHideTrackerCheck:SetEnabled(true)
     self.mythicPlusTimerHeightSlider:SetValue(
         self.db.enhanceQoLMythicPlusTimerHeight
     )

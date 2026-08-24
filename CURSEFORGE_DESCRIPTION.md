@@ -27,14 +27,14 @@ The goal is simple: keep everything useful about Blizzard's tracker, remove the 
 ## Integrations available now
 
 - **EnhanceQoL Damage Meter:** embed up to five independently ordered windows in the tracker.
-- **EnhanceQoL Mythic+ Timer:** place the timer directly inside your category order and adjust its height.
+- **MythicPlusTimer and EnhanceQoL Mythic+ Timer:** choose your timer and place it directly inside your category order. The source list only shows integrations you have installed.
 - **Auctionator:** search for the reagents needed by all tracked recipes while the auction house is open.
 
 ## Roadmap
 
 These are the main areas planned for upcoming updates:
 
-- Integration with **MythicPlusTimer** and other popular Mythic+ timer addons.
+- Integration with more popular Mythic+ timer addons.
 - Integration with **Details!** and other damage or combat meters.
 - Better support for navigation and waypoint addons such as **TomTom**.
 - More quality-of-life options for World Quests and newly appearing objectives.
