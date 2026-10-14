@@ -1,10 +1,10 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: BetterQuestList
 ## Notes: A lightweight custom quest tracker with persistent ordering and scrolling.
 ## Notes-ruRU: Лёгкий трекер заданий с постоянным порядком категорий и прокруткой.
 ## Notes-deDE: Eine schlanke Questverfolgung mit fester Kategorienreihenfolge und Scrollen.
 ## Author: Timur
-## Version: 1.7.0
+## Version: 1.7.1
 ## X-Curse-Project-ID: 1653870
 ## IconTexture: Interface\AddOns\BetterQuestList\Media\BetterQuestListIcon.tga
 ## SavedVariables: BetterQuestListDB
